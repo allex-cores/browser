@@ -1,5 +1,5 @@
 {
-  "name": "allex-browsercore",
+  "name": "allex_browsercore",
   "description": "AllexJS Browser Core",
   "main": "src/index.js",
   "authors": [
@@ -19,7 +19,7 @@
     "test",
     "tests",
     "src",
-    "package.json",
-    "protoboard.json"
+    "protoboard.json",
+    "package.json"
   ]
 }
