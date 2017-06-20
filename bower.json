@@ -18,6 +18,8 @@
     "bower_components",
     "test",
     "tests",
-    "src"
+    "src",
+    "package.json",
+    "protoboard.json"
   ]
 }
