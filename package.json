@@ -1,0 +1,33 @@
+{
+  "name": "allex_browsercore",
+  "version": "1.0.0",
+  "description": "AllexJS Browser Core",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/allex-cores/browser.git"
+  },
+  "dependencies": {
+    "allexlib": "2.x",
+    "allex_clientcore": "1.x",
+    "allex_arrayoperationslowlevellib": "1.x",
+    "allex_callableservercorelib": "1.x",
+    "allex_transportservercorelib": "1.x",
+    "allex_sessionintroductorservercorelib": "1.x",
+    "allex_servicepackservercorelib": "2.x"
+  },
+  "keywords": [
+    "ecosystem:AllexJS",
+    "browser",
+    "core"
+  ],
+  "author": "Andrija Petrovic <andrija.hers@gmail.com>",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/allex-cores/browser/issues"
+  },
+  "homepage": "https://github.com/allex-cores/browser#readme"
+}

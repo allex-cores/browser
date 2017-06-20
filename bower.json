@@ -1,0 +1,23 @@
+{
+  "name": "allex_browsercore",
+  "description": "AllexJS Browser Core",
+  "main": "src/index.js",
+  "authors": [
+    "Andrija Petrovic <andrija.hers@gmail.com>"
+  ],
+  "license": "ISC",
+  "keywords": [
+    "ecosystem:AllexJS",
+    "browser",
+    "core"
+  ],
+  "homepage": "https://github.com/allex-cores/browser",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests",
+    "src"
+  ]
+}
