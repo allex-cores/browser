@@ -5136,72 +5136,7 @@ function createResolutionLib (isString, isFunction, q, qlib) {
 
 module.exports = createResolutionLib;
 
-},{"./nsfetching":47,"./resolvercreator":48}],46:[function(require,module,exports){
-var fs = require('fs'),
-  Path = require('path');
-
-var _nsfilename = '.allexns.json';
-
-function createNSFetcher (q, qlib) {
-  'use strict';
-
-  function checkForPath (path) {
-    var d = q.defer(), ret = d.promise;
-    fs.access(path, fs.constants.R_OK, function (err) {
-      if (err) {
-        d.resolve(null);
-      } else {
-        d.resolve(path);
-      }
-      d = null;
-      path = null;
-    });
-    return ret;
-  }
-
-  function decideOnDirectory (dirpath) {
-    if (!dirpath) {
-      return null;
-    }
-    return qlib.promise2decision(checkForPath(Path.join(dirpath, _nsfilename)), decideOnNSFile.bind(null, dirpath));
-  }
-
-  function decideOnNSFile (dirpath, filepath) {
-    var back;
-    if (!filepath) {
-      back = Path.normalize(Path.join(dirpath, '..'));
-      if (back === dirpath) {
-        return null;
-      }
-      return findNSFile(back);
-    }
-    return filepath;
-  }
-
-  function findNSFile (path) {
-    if (!path) {
-      path = Path.resolve();
-    }
-    return qlib.promise2decision(checkForPath(path), decideOnDirectory);
-  }
-
-  function requirer (nsfilepath) {
-    if (!nsfilepath) {
-      return null;
-    }
-    return require(nsfilepath);
-  }
-
-  function fetchNSS () {
-    return findNSFile().then(requirer);
-  }
-
-  return fetchNSS;
-}
-
-module.exports = createNSFetcher;
-
-},{"fs":227,"path":295}],47:[function(require,module,exports){
+},{"./nsfetching":46,"./resolvercreator":48}],46:[function(require,module,exports){
 function createNSFetching (isString, q, qlib) {
   'use strict';
 
@@ -5253,7 +5188,20 @@ function createNSFetching (isString, q, qlib) {
 
 module.exports = createNSFetching;
 
-},{"./fetchercreator":46}],48:[function(require,module,exports){
+},{"./fetchercreator":47}],47:[function(require,module,exports){
+function createNSFetcher (q, qlib) {
+
+  function fetchNSS () {
+    return q(window['.allexns.js'] || null);
+  }
+
+  return fetchNSS;
+}
+
+module.exports = createNSFetcher;
+
+
+},{}],48:[function(require,module,exports){
 function createResolver (isString, isFunction, q, qlib) {
   'use strict';
 
@@ -16041,7 +15989,9 @@ module.exports = Validator;
 
 },{"./attribute":178,"./helpers":179,"url":341}],182:[function(require,module,exports){
 window.ALLEX = {
-  lib: require('allexlib')
+  lib: require('allexlib'),
+  LOW_LEVEL_LIBS : {},
+  WEB_COMPONENTS : {}
 };
 require('./index.js')(ALLEX);
 
