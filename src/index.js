@@ -6,7 +6,7 @@ ServiceInterface.prototype.introduceUser = ServiceInterface.prototype.onUserDest
 
 function createExecSuite (execlib) {
   'use strict';
-  var lib, Callable, TalkerFactory, SessionIntroductor, servicepacklib;
+  var lib, Callable, TalkerFactory, ServiceSink, BaseSinkMap;
   lib = execlib.lib;
   lib.arryOperations = require('allex_arrayoperationslowlevellib')(lib.extend, lib.readPropertyFromDotDelimitedString, lib.isFunction, lib.Map, lib.AllexJSONizingError);
   lib.doMethod = function doMethod (method, args, obj){
@@ -17,8 +17,8 @@ function createExecSuite (execlib) {
   TalkerFactory = require('allex_transportservercorelib')(lib);
   require('allex_clientcore')(execlib, TalkerFactory);
   execlib.execSuite.Callable = Callable;
-  SessionIntroductor = require('allex_sessionintroductorservercorelib')(lib);
-  servicepacklib = require('allex_servicepackservercorelib')(execlib, SessionIntroductor);
+  ServiceSink = require('../node_modules/allex_servicepackservercorelib/servicesink')(execlib);
+  BaseSinkMap = require('../node_modules/allex_servicepackservercorelib/base/sinkmapcreator')(ServiceSink, execlib);
 
   TalkerFactory.prototype.HttpTalker.prototype.sendRequest = function(page,obj){
     lib.request(page,{
@@ -31,10 +31,9 @@ function createExecSuite (execlib) {
   };
   execlib.execSuite.ServiceInterface = ServiceInterface;
 
-  console.log(servicepacklib);
-  execlib.execSuite.registry.registerClientSide('.', servicepacklib.base.sinkmap(execlib));
-  execlib.execSuite.taskRegistry.register('.',servicepacklib.base.tasks(execlib));
-  execlib.execSuite.registry.registerClientSide('.authentication',servicepacklib.authentication.sinkmap);
+  execlib.execSuite.registry.registerClientSide('.', BaseSinkMap);
+  execlib.execSuite.taskRegistry.register('.',require('../node_modules/allex_servicepackservercorelib/base/taskcreator')(execlib));
+  execlib.execSuite.registry.registerClientSide('.authentication',require('../node_modules/allex_servicepackservercorelib/authentication/sinkmapcreator')(execlib, BaseSinkMap));
 }
 
 module.exports = createExecSuite;
