@@ -1216,7 +1216,9 @@ function createTreeFactory(dlistbase, inherit) {
       this.purge();
       this.count = null;
       this.root = null;
-      this.controller.destroy();
+      if (this.controller) {
+        this.controller.destroy();
+      }
       this.controller = null;
     };
 
@@ -1239,7 +1241,7 @@ function createTreeFactory(dlistbase, inherit) {
     };
 
     AvlTree.prototype.add = function(){ //arguments are to be fed into nodefactory
-      if (!this.controller) {
+      if (!(this.root && this.controller)) {
         return null;
       }
       var newItem = nodefactory.apply(null,arguments);//new nodector(content);
@@ -1254,14 +1256,14 @@ function createTreeFactory(dlistbase, inherit) {
     };
 
     AvlTree.prototype.remove = function(content){
-      if (!this.root){
+      if (!(this.root && this.controller)) {
         return null;
       }
       return this.controller.remove(content);
     };
 
     AvlTree.prototype.find = function(content){
-      if (!this.root){
+      if (!(this.root && this.controller)) {
         return null;
       }
       return this.controller.find(content);
@@ -1275,54 +1277,90 @@ function createTreeFactory(dlistbase, inherit) {
     };
 
     AvlTree.prototype.firstItemToSatisfyPreOrder = function(func){
+      if (!(this.root && this.controller)) {
+        return null;
+      }
       return this.controller.firstItemToSatisfyPreOrder(func,this.root);
     };
 
     AvlTree.prototype.firstItemToSatisfy = function(func){
+      if (!(this.root && this.controller)) {
+        return null;
+      }
       return this.controller.firstItemToSatisfyInOrder(func,this.root);
     };
 
     AvlTree.prototype.firstItemToSatisfyPostOrder = function(func){
+      if (!(this.root && this.controller)) {
+        return null;
+      }
       return this.controller.firstItemToSatisfyPostOrder(func,this.root);
     };
 
     AvlTree.prototype.lastItemToSatisfyPreOrder = function(func){
+      if (!(this.root && this.controller)) {
+        return null;
+      }
       return this.controller.lastItemToSatisfyPreOrder(func,this.root,null);
     };
 
     AvlTree.prototype.lastItemToSatisfy = function(func){
+      if (!(this.root && this.controller)) {
+        return null;
+      }
       return this.controller.lastItemToSatisfyInOrder(func,this.root,null);
     };
 
     AvlTree.prototype.lastItemToSatisfyPostOrder = function(func){
+      if (!(this.root && this.controller)) {
+        return null;
+      }
       return this.controller.lastItemToSatisfyPostOrder(func,this.root,null);
     };
 
     AvlTree.prototype.traverseInOrder = function(func){
+      if (!(this.root && this.controller)) {
+        return;
+      }
       this.controller.traverseInOrder(func,this.root,0);
     }
 
     AvlTree.prototype.traverse = AvlTree.prototype.traverseInOrder;
 
     AvlTree.prototype.traversePreOrder= function(func){
+      if (!(this.root && this.controller)) {
+        return;
+      }
       this.controller.traversePreOrder(func,this.root,0);
     }
 
     AvlTree.prototype.traversePostOrder= function(func){
+      if (!(this.root && this.controller)) {
+        return;
+      }
       this.controller.traversePostOrder(func,this.root,0);
     }
 
     AvlTree.prototype.traverseInOrderConditionally = function(func){
+      if (!(this.root && this.controller)) {
+        return;
+      }
       return this.controller.traverseInOrderConditionally(func,this.root,0);
     }
 
     AvlTree.prototype.traverseConditionally = AvlTree.prototype.traverseInOrderConditionally;
 
     AvlTree.prototype.traversePreOrderConditionally= function(func){
+      if (!(this.root && this.controller)) {
+        return;
+      }
       return this.controller.traversePreOrderConditionally(func,this.root,0);
     }
 
     AvlTree.prototype.traversePostOrderConditionally= function(func){
+      if (!(this.root && this.controller)) {
+        return;
+      }
       return this.controller.traversePostOrderConditionally(func,this.root,0);
     }
 
@@ -2262,6 +2300,9 @@ function createInProcClient(lib,Client,talkerFactory){
   };
   InProcClient.prototype.createTalker = function () {
     return q(talkerFactory('inproc', this.gate));
+  };
+  InProcClient.prototype.oobItemClone = function (item) {
+    return JSON.parse(JSON.stringify(item));
   };
   return InProcClient;
 }
@@ -36312,7 +36353,7 @@ Hash.prototype.digest = function (enc) {
 
   // uint64
   } else {
-    var lowBits = bits & 0xffffffff
+    var lowBits = (bits & 0xffffffff) >>> 0
     var highBits = (bits - lowBits) / 0x100000000
 
     this._block.writeUInt32BE(highBits, this._blockSize - 8)
