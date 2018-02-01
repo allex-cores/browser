@@ -1241,7 +1241,7 @@ function createTreeFactory(dlistbase, inherit) {
     };
 
     AvlTree.prototype.add = function(){ //arguments are to be fed into nodefactory
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return null;
       }
       var newItem = nodefactory.apply(null,arguments);//new nodector(content);
@@ -1256,14 +1256,14 @@ function createTreeFactory(dlistbase, inherit) {
     };
 
     AvlTree.prototype.remove = function(content){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return null;
       }
       return this.controller.remove(content);
     };
 
     AvlTree.prototype.find = function(content){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return null;
       }
       return this.controller.find(content);
@@ -1277,49 +1277,49 @@ function createTreeFactory(dlistbase, inherit) {
     };
 
     AvlTree.prototype.firstItemToSatisfyPreOrder = function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return null;
       }
       return this.controller.firstItemToSatisfyPreOrder(func,this.root);
     };
 
     AvlTree.prototype.firstItemToSatisfy = function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return null;
       }
       return this.controller.firstItemToSatisfyInOrder(func,this.root);
     };
 
     AvlTree.prototype.firstItemToSatisfyPostOrder = function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return null;
       }
       return this.controller.firstItemToSatisfyPostOrder(func,this.root);
     };
 
     AvlTree.prototype.lastItemToSatisfyPreOrder = function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return null;
       }
       return this.controller.lastItemToSatisfyPreOrder(func,this.root,null);
     };
 
     AvlTree.prototype.lastItemToSatisfy = function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return null;
       }
       return this.controller.lastItemToSatisfyInOrder(func,this.root,null);
     };
 
     AvlTree.prototype.lastItemToSatisfyPostOrder = function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return null;
       }
       return this.controller.lastItemToSatisfyPostOrder(func,this.root,null);
     };
 
     AvlTree.prototype.traverseInOrder = function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return;
       }
       this.controller.traverseInOrder(func,this.root,0);
@@ -1328,21 +1328,21 @@ function createTreeFactory(dlistbase, inherit) {
     AvlTree.prototype.traverse = AvlTree.prototype.traverseInOrder;
 
     AvlTree.prototype.traversePreOrder= function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return;
       }
       this.controller.traversePreOrder(func,this.root,0);
     }
 
     AvlTree.prototype.traversePostOrder= function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return;
       }
       this.controller.traversePostOrder(func,this.root,0);
     }
 
     AvlTree.prototype.traverseInOrderConditionally = function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return;
       }
       return this.controller.traverseInOrderConditionally(func,this.root,0);
@@ -1351,14 +1351,14 @@ function createTreeFactory(dlistbase, inherit) {
     AvlTree.prototype.traverseConditionally = AvlTree.prototype.traverseInOrderConditionally;
 
     AvlTree.prototype.traversePreOrderConditionally= function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return;
       }
       return this.controller.traversePreOrderConditionally(func,this.root,0);
     }
 
     AvlTree.prototype.traversePostOrderConditionally= function(func){
-      if (!(this.root && this.controller)) {
+      if (!this.controller) {
         return;
       }
       return this.controller.traversePostOrderConditionally(func,this.root,0);
@@ -28998,30 +28998,53 @@ utils.intFromLE = intFromLE;
 
 },{"bn.js":183,"minimalistic-assert":275,"minimalistic-crypto-utils":276}],250:[function(require,module,exports){
 module.exports={
-  "_from": "elliptic@^6.0.0",
+  "_args": [
+    [
+      {
+        "raw": "elliptic@^6.0.0",
+        "scope": null,
+        "escapedName": "elliptic",
+        "name": "elliptic",
+        "rawSpec": "^6.0.0",
+        "spec": ">=6.0.0 <7.0.0",
+        "type": "range"
+      },
+      "/home/ubuntu/lib/node_modules/allexsdk-dev/node_modules/browserify-sign"
+    ]
+  ],
+  "_from": "elliptic@>=6.0.0 <7.0.0",
   "_id": "elliptic@6.4.0",
-  "_inBundle": false,
-  "_integrity": "sha1-ysmvh2LIWDYYcAPI3+GT5eLq5d8=",
-  "_location": "/allexsdk/elliptic",
+  "_inCache": true,
+  "_location": "/elliptic",
+  "_nodeVersion": "7.0.0",
+  "_npmOperationalInternal": {
+    "host": "packages-18-east.internal.npmjs.com",
+    "tmp": "tmp/elliptic-6.4.0.tgz_1487798866428_0.30510620190761983"
+  },
+  "_npmUser": {
+    "name": "indutny",
+    "email": "fedor@indutny.com"
+  },
+  "_npmVersion": "3.10.8",
   "_phantomChildren": {},
   "_requested": {
-    "type": "range",
-    "registry": true,
     "raw": "elliptic@^6.0.0",
-    "name": "elliptic",
+    "scope": null,
     "escapedName": "elliptic",
+    "name": "elliptic",
     "rawSpec": "^6.0.0",
-    "saveSpec": null,
-    "fetchSpec": "^6.0.0"
+    "spec": ">=6.0.0 <7.0.0",
+    "type": "range"
   },
   "_requiredBy": [
-    "/allexsdk/browserify-sign",
-    "/allexsdk/create-ecdh"
+    "/browserify-sign",
+    "/create-ecdh"
   ],
   "_resolved": "https://registry.npmjs.org/elliptic/-/elliptic-6.4.0.tgz",
   "_shasum": "cac9af8762c85836187003c8dfe193e5e2eae5df",
+  "_shrinkwrap": null,
   "_spec": "elliptic@^6.0.0",
-  "_where": "/home/andra/lib/node_modules/allexsdk/node_modules/browserify-sign",
+  "_where": "/home/ubuntu/lib/node_modules/allexsdk-dev/node_modules/browserify-sign",
   "author": {
     "name": "Fedor Indutny",
     "email": "fedor@indutny.com"
@@ -29029,7 +29052,6 @@ module.exports={
   "bugs": {
     "url": "https://github.com/indutny/elliptic/issues"
   },
-  "bundleDependencies": false,
   "dependencies": {
     "bn.js": "^4.4.0",
     "brorand": "^1.0.1",
@@ -29039,7 +29061,6 @@ module.exports={
     "minimalistic-assert": "^1.0.0",
     "minimalistic-crypto-utils": "^1.0.0"
   },
-  "deprecated": false,
   "description": "EC cryptography",
   "devDependencies": {
     "brfs": "^1.4.3",
@@ -29057,9 +29078,15 @@ module.exports={
     "jshint": "^2.6.0",
     "mocha": "^2.1.0"
   },
+  "directories": {},
+  "dist": {
+    "shasum": "cac9af8762c85836187003c8dfe193e5e2eae5df",
+    "tarball": "https://registry.npmjs.org/elliptic/-/elliptic-6.4.0.tgz"
+  },
   "files": [
     "lib"
   ],
+  "gitHead": "6b0d2b76caae91471649c8e21f0b1d3ba0f96090",
   "homepage": "https://github.com/indutny/elliptic",
   "keywords": [
     "EC",
@@ -29069,7 +29096,15 @@ module.exports={
   ],
   "license": "MIT",
   "main": "lib/elliptic.js",
+  "maintainers": [
+    {
+      "name": "indutny",
+      "email": "fedor@indutny.com"
+    }
+  ],
   "name": "elliptic",
+  "optionalDependencies": {},
+  "readme": "ERROR: No README data found!",
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/indutny/elliptic.git"
@@ -33544,7 +33579,7 @@ exports.encode = exports.stringify = require('./encode');
 'use strict'
 
 function oldBrowser () {
-  throw new Error('Secure random number generation is not supported by this browser.\nUse Chrome, Firefox or Internet Explorer 11')
+  throw new Error('secure random number generation not supported by this browser\nuse chrome, FireFox or Internet Explorer 11')
 }
 
 var Buffer = require('safe-buffer').Buffer
@@ -36353,7 +36388,7 @@ Hash.prototype.digest = function (enc) {
 
   // uint64
   } else {
-    var lowBits = (bits & 0xffffffff) >>> 0
+    var lowBits = bits & 0xffffffff
     var highBits = (bits - lowBits) / 0x100000000
 
     this._block.writeUInt32BE(highBits, this._blockSize - 8)
