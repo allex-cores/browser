@@ -1,6 +1,6 @@
 {
   "name": "allex_browsercore",
-  "version": "1.0.8",
+  "version": "1.0.10",
   "description": "AllexJS Browser Core",
   "main": "src/index.js",
   "scripts": {
@@ -10,7 +10,7 @@
     "type": "git",
     "url": "git+https://github.com/allex-cores/browser.git"
   },
-  "dependencies": {
+  "devDependencies": {
     "allexlib": "2.x",
     "allex_clientcore": "1.x",
     "allex_arrayoperationslowlevellib": "1.x",
