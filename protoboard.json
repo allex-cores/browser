@@ -1,5 +1,9 @@
 {
   "browserify" : {
     "dist/browsercore.js" : "src/browserify.js"
+  },
+  "actualtarget": ["dist", "browsercore.js"],
+  "dependencies": {
+    "js": ["node_modules/allexns/ns.js"]
   }
 }
