@@ -14,21 +14,12 @@ function createExecSuite (execlib) {
     return obj[method].apply(obj, args);
   }
   Callable = require('allex_callableservercorelib')(lib);
-  TalkerFactory = require('allex_transportservercorelib')(lib);
+  TalkerFactory = require('allex_transportservercorelib')(lib, window.signalR);
   require('allex_clientcore')(execlib, TalkerFactory);
   execlib.execSuite.Callable = Callable;
   ServiceSink = require('../node_modules/allex_servicepackservercorelib/servicesink')(execlib);
   BaseSinkMap = require('../node_modules/allex_servicepackservercorelib/base/sinkmapcreator')(ServiceSink, execlib);
 
-  TalkerFactory.prototype.HttpTalker.prototype.sendRequest = function(page,obj){
-    lib.request(page,{
-      params:obj,
-      onComplete:this.onRequestDone.bind(this)
-    });
-  };
-  TalkerFactory.prototype.HttpTalker.prototype.onRequestDone = function(response){
-    console.log('got response',response);
-  };
   execlib.execSuite.ServiceInterface = ServiceInterface;
 
   execlib.execSuite.registry.registerClientSide('.', BaseSinkMap);

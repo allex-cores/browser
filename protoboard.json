@@ -5,5 +5,10 @@
   "actualtarget": ["dist", "browsercore.js"],
   "dependencies": {
     "js": ["node_modules/allexns/ns.js"]
+  },
+  "additionaltargets": {
+    "js": [
+      ["dist", "signalr.min.js"]
+    ]
   }
 }
