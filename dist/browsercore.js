@@ -1197,7 +1197,7 @@ function createAvlTreeControllerFactory(Stack) {
 module.exports = createAvlTreeControllerFactory;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],5:[function(require,module,exports){
+},{"_process":355}],5:[function(require,module,exports){
 function createAvlTree (dlistbase, inherit) {
   return {
     treeFactory: require('./treefactorycreator')(dlistbase, inherit),
@@ -1565,7 +1565,7 @@ module.exports = function (lib) {
 };
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],8:[function(require,module,exports){
+},{"_process":355}],8:[function(require,module,exports){
 function isFunction (val) {return 'function' === typeof(val);}
 function isArray (val) {return 'object' === typeof(val) && val instanceof Array;}
 function isUndef (val) {
@@ -1734,6 +1734,734 @@ module.exports =  {
 };
 
 },{}],9:[function(require,module,exports){
+function createWebFriendlySubset(execlib,TalkerFactory){
+  'use strict';
+  var lib = execlib.lib,
+    streamlib = require('allex_streamclientcorelib')(lib),
+    statelib = require('allex_stateclientcorelib')(lib),
+    loadDependencies = require('allex_dependencyloaderclientcorelib')(execlib),
+    talkerSpawner = require('allex_transportclientcorelib')(lib, TalkerFactory),
+    clientFactory = require('allex_clientsclientcorelib')(lib, talkerSpawner),
+    RegistryBase = require('allex_registrybaseclientcorelib')(execlib);
+
+  execlib.loadDependencies = loadDependencies;
+  execlib.execSuite = {
+    RegistryBase: RegistryBase,
+    additionalRegistries: new lib.Map(),
+    streamSourceCreator: streamlib.streamSourceCreator,
+    StreamSink: streamlib.StreamSink,
+    StreamBlackHole: streamlib.StreamBlackHole,
+    StreamSinkBunch: streamlib.StreamSinkBunch,
+    StreamDistributor: streamlib.StreamDistributor,
+    StateCoder: statelib.StateCoder,
+    StateSource: statelib.StateSource,
+    State2Array: statelib.State2Array,
+    State2Defer: statelib.State2Defer,
+    StateDecoder: statelib.StateDecoder,
+    State2Map: statelib.State2Map,
+    StatePathModifier: statelib.StatePathModifier,
+    StatePathListener: statelib.StatePathListener,
+    StateCollectionListener: statelib.StateCollectionListener,
+    StateScalarListener: statelib.StateScalarListener,
+    StateSubServiceExtractor: statelib.StateSubServiceExtractor,
+    ADS: statelib.ADS,
+    Collection: statelib.Collection,
+    LimitedCollection: statelib.LimitedCollection,
+    libRegistry: new RegistryBase(),
+    talkerSpawner: talkerSpawner,
+    clientFactory: clientFactory
+  };
+  execlib.execSuite.dependentMethod = require('allex_dependentmethodclientcorelib')(lib);
+  require('allex_taskclientcorelib')(execlib); //augment execSuite with Task functionality
+  require('allex_servicepackclientcorelib')(execlib,clientFactory); //augment execSuite with servicepack functionality (registry created here)
+};
+
+module.exports = createWebFriendlySubset;
+
+},{"allex_clientsclientcorelib":14,"allex_dependencyloaderclientcorelib":21,"allex_dependentmethodclientcorelib":22,"allex_registrybaseclientcorelib":86,"allex_servicepackclientcorelib":88,"allex_stateclientcorelib":121,"allex_streamclientcorelib":134,"allex_taskclientcorelib":142,"allex_transportclientcorelib":158}],10:[function(require,module,exports){
+(function (process){(function (){
+function createChildProcClient(lib, Client, talkerFactory) {
+  'use strict';
+  var q = lib.q, _childProcessClientCount = 0;
+  function ChildProcessClient(jstofork, options) {
+    //console.log('ChildProcessClient', process.pid, jstofork, options);
+    //console.log(process.pid, 'new ChildProcessClient', ++_childProcessClientCount);
+    this.jstofork = jstofork;
+    this.options = options;
+    Client.call(this, process.pid + '');
+  }
+  lib.inherit(ChildProcessClient, Client);
+  ChildProcessClient.prototype.__cleanUp = function () {
+    Client.prototype.__cleanUp.call(this);
+    this.options = null;
+    this.jstofork = null;
+    //console.log(process.pid, 'ChildProcessClient dead');//, --_childProcessClientCount);
+  };
+  ChildProcessClient.prototype.createTalker = function () {
+    return q(talkerFactory('proc', this.jstofork, this.options));
+  };
+  ChildProcessClient.prototype.communicationType = 'child_process';
+  return ChildProcessClient;
+}
+
+module.exports = createChildProcClient;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],11:[function(require,module,exports){
+function createClient(lib){
+  'use strict';
+  var q = lib.q, _ClientCount=0;
+  function no__seriesCopier (obj, val, key) {
+    if (key !== '__service') {
+      obj.ret[key] = val;
+    }
+  }
+  function safeCredentials(credentials) {
+    if ('object' !== typeof credentials) {
+      return null;
+    }
+    var ret = {}, nscobj = {ret: ret};
+    lib.traverseShallow(credentials, no__seriesCopier.bind(null, nscobj));
+    nscobj.ret = null;
+    nscobj = null;
+    return ret;
+  }
+
+  function ClientIdentity(session,credentials){
+    this.talkerid = null;
+    this.session = session||null;
+    this.credentials = safeCredentials(credentials);
+    if (credentials && credentials.ip && !credentials.ip.name) {
+      console.trace();
+      console.log('Y NO NAME?', credentials);
+    }
+    this.__established = false;
+  }
+  ClientIdentity.prototype.destroy = function(){
+    this.__established = null;
+    this.credentials = null;
+    this.session = null;
+    this.talkerid = null;
+  };
+  ClientIdentity.prototype.set = function(introduce){
+    this.session = introduce.session;
+    this.__established = !!this.session;
+    this.credentials = null;
+  };
+  ClientIdentity.prototype.toIntroduceArray = function(){
+    return [this.session, this.credentials ? this.credentials : null];
+  };
+  ClientIdentity.prototype.established = function(){
+    return this.__established;
+  };
+
+  var dummyOOBSink = {
+    destroy:lib.dummyFunc,
+    onOOBData:lib.dummyFunc
+  };
+  function OOBSource(){
+    this.oob = new lib.Fifo;
+    this.oobsink = null;
+  }
+  OOBSource.prototype.destroy = function(){
+    if (this.oob) {
+      this.oob.destroy();
+    }
+    this.oob = null;
+    this.oobsink = null;
+  };
+  OOBSource.prototype.unlinkAndDestroy = function(){
+    this.destroy();
+  };
+  OOBSource.prototype.isGoingToDie = function(){
+    return this.oobsink === dummyOOBSink;
+  };
+  OOBSource.prototype.takeExternalException = function (exception) {
+    this.setOOBSink(dummyOOBSink);
+    this.destroy(exception);
+  };
+  OOBSource.prototype.onOOBData = function(oob){
+    if (!this.oob) {
+      return;
+    }
+    if(oob[1] === '-'){
+      //console.log(process.pid,'OOBSource dying',this.identity ? this.identity.session : 'no session');
+      this.setOOBSink(dummyOOBSink);
+      this.destroy();
+      return;
+    }
+    if(this.oobsink){
+      this.oobsink.onOOBData(oob);
+    }else{
+      try {
+        this.oob.push(this.oobItemClone(oob));
+      } catch (e) {
+        console.trace();
+        console.log('cannot clone oob', oob);
+        console.log(oob);
+        console.error(e.stack);
+        console.error(e);
+      }
+    }
+  };
+  OOBSource.prototype.setOOBSink = function(oobsink){
+    var _os;
+    if(!this.oob){
+      return;
+    }
+    if(oobsink){
+      _os = oobsink;
+      this.oob.drain(_os.onOOBData.bind(_os));
+      _os = null;
+    }
+    this.oobsink = oobsink;
+  };
+  OOBSource.prototype.goDie = function () {
+    this.destroy();
+  };
+  OOBSource.prototype.oobItemClone = function (item) {
+    return item;
+    //return JSON.parse(JSON.stringify(item));
+  };
+  // Specialized classes need to override
+  // a method send that returns a promise.
+  // setup a mechanism to fetch incoming data
+  // and feed them to the onIncoming method
+  function Client(session,credentials){
+    //console.log(process.pid, 'new Client', ++_ClientCount);
+    lib.ComplexDestroyable.call(this);
+    OOBSource.call(this);
+    this.q = new lib.Fifo();
+    this.authenticated = new lib.HookCollection();
+    this.children = new lib.Map();
+    this.identity = new ClientIdentity(session,credentials);
+    this.talker = null;
+    this.dieExeced = false;
+    //this.talkerDestroyedListener = null;
+    this.obtainTalker().then(
+      this.onTalker.bind(this),
+      this.destroy.bind(this)
+    );
+  }
+  lib.inherit(Client, lib.ComplexDestroyable);
+  Client.prototype.takeExternalException = OOBSource.prototype.takeExternalException;
+  Client.prototype.onOOBData = OOBSource.prototype.onOOBData;
+  Client.prototype.setOOBSink = OOBSource.prototype.setOOBSink;
+  Client.prototype.isGoingToDie = OOBSource.prototype.isGoingToDie;
+  Client.prototype.oobItemClone = OOBSource.prototype.oobItemClone;
+  Client.prototype.__cleanUp = function(){
+    //console.log(process.pid,this.identity.session,'finally dying');
+    var children = this.children, authenticated = this.authenticated;
+     if (!children) {
+      console.log('======================================================================return');
+      return;
+    }
+    /*
+    if (this.talkerDestroyedListener) {
+      this.talkerDestroyedListener.destroy();
+    }
+    this.talkerDestroyedListener = null;
+    */
+    this.dieExeced = null;
+    if (this.talker) {
+      this.talker.remove(this);
+    }
+    this.talker = null;
+    this.children = null;
+    this.identity.destroy();
+    this.identity = null;
+    this.authenticated = null;
+    this.q.destroy();
+    this.q = null;
+    OOBSource.prototype.destroy.call(this);
+    lib.ComplexDestroyable.prototype.__cleanUp.call(this);
+    if (children) {
+      lib.containerDestroyAll(children);
+    }
+    if (authenticated) {
+      authenticated.destruct();
+    }
+    //console.log(process.pid, 'Client down', --_ClientCount);
+  };
+  function deathTeller(client, session) {
+    //client.onOOBData([session, '-', true]);
+  }
+  Client.prototype.startTheDyingProcedure = function () {
+    if (!this.children) {
+      return;
+    }
+    if (this.talker && this.talker.__dyingException) {
+      this.__dyingException = this.talker.__dyingException;
+    }
+    this.children.traverse(deathTeller);
+    //lib.containerDestroyAll(this.children);
+  };
+  Client.prototype.dyingCondition = function () {
+    if (!this.children) {
+      return true;
+    }
+    var ret = this.children.traverseConditionally(hasSession);
+    if (ret) {
+      //console.log(process.pid, 'Client cannot die yet, there are children');
+      return false;
+    }
+    return true;
+    //return this.children.length < 1;
+  };
+  function hasSession(chld){
+    if(chld && chld.identity && chld.identity.session){
+      return true;
+    }
+  }
+  Client.prototype.dieExceptionally = function(exception){
+    if(!this.destroyed){
+      return;
+    }
+    this.destroy(exception);
+  };
+  function godier (c) {
+    c.goDie();
+  }
+  Client.prototype.goDie = function(){
+    /*
+    if(this.isGoingToDie()){
+      return;
+    }
+    */
+    if(!this.children){
+      return;
+    }
+    this.children.traverse(godier);
+    //console.log(this.identity.session, 'going to die');
+    //console.log(process.pid, 'Client wants to die');
+    if (this.dieExeced === false) {
+      this.dieExeced = true;
+      this.exec(['!',['die', []]]).then(
+        null,
+        this.destroy.bind(this)
+      );
+    }
+  };
+  Client.prototype.obtainTalker = function () {
+    if (this.talker) {
+      return q(this.talker);
+    }
+    return this.createTalker();
+  };
+  Client.prototype.onTalker = function (talker) {
+    if (!talker) {
+      this.destroy();
+      return;
+    }
+    this.talker = talker;
+    if (!this.checkTalker()) {
+      return;
+    }
+    //this.talkerDestroyedListener = this.talker.destroyed.attach(this.destroy.bind(this));
+    this.talker.add(this).then(
+      this.onIdentity.bind(this),
+      this.destroy.bind(this)
+    );
+  };
+  Client.prototype.checkTalker = function () {
+    if (!this.talker) {
+      return false;
+    }
+    if (!this.talker.destroyed) {
+      return false;
+    }
+    if (this.talker.__dying) {
+      if (this.talker.__dyingException) {
+        this.destroy(this.talker.__dyingException);
+      } else {
+        this.destroy();
+      }
+      return false;
+    }
+    return true;
+  };
+  Client.prototype.onIdentity = function(introduce){
+    if (!this.identity) {
+      return;
+    }
+    if (!introduce) {
+      this.destroy();
+      return;
+    }
+    this.identity.set(introduce);
+    var qi;
+    if(this.identity.established()){
+      this.authenticated.fire(this,introduce.modulename,introduce.role);
+      this.q.drain(this.drainer.bind(this));
+      //this.talker.onSent('exec');
+    }
+  };
+  Client.prototype.drainer = function (qi) {
+    var _d;
+    if (!this.checkTalker()) {
+      return;
+    }
+    _d = qi[1];
+    this.talker.transfer(this, qi[0]).then(_d.resolve.bind(_d));
+    _d = null;
+  };
+  Client.prototype.okToSend = function () {
+    return this.identity.established();
+  };
+  Client.prototype.exec = function(callablespec){
+    if (!this.q) {
+      console.warn("I'm dead ... ");
+      return q.reject(new lib.Error('ALREADY_DEAD', 'A destroyed Client cannot exec'));
+    }
+    if (!this.talker) {
+      var d = q.defer();
+      this.q.push([callablespec, d]);
+      return d.promise;
+    }
+    if (!this.checkTalker()) {
+      return q.reject(this.__dyingException);
+    }
+    return this.talker.transfer(this,callablespec);
+  };
+  function findPD(targetid,content){
+    return content ? targetid===content.id : false;
+  }
+  Client.prototype.onSubConnected = function(subservicename,d,introducehash){
+    try {
+    if (!this.destroyed) {
+      d.resolve(null);
+      d = null;
+      return;
+    }
+    //console.log('onSubConnected',subservicename,introducehash,this.identity.session);
+    if(introducehash && introducehash.introduce){
+      d.resolve({
+        role:introducehash.introduce.role,
+        servicepackname:introducehash.introduce.modulename,
+        client:new SubClient(subservicename,introducehash.introduce,this._parent ? this._parent : this)});
+    }else{
+      d.resolve(null);
+    }
+    } catch(e) {
+      console.error(e.stack);
+      console.error(e);
+    }
+    d = null;
+  };
+  Client.prototype.subConnect = function(subservicename,userhash,ctor){
+    //console.trace();
+    //console.log('subConnect',subservicename,userhash,process.pid);
+    var d = q.defer(), ret = d.promise;
+    this.exec(['!', ['subConnect', [subservicename,userhash]]]).done(
+      this.onSubConnected.bind(this,subservicename,d),
+      d.reject.bind(d)
+    );
+    d = null;
+    return ret;
+  };
+  Client.prototype.onIncomingExecResult = function(incomingunit){
+    if (!(incomingunit.id || incomingunit.oob)) {
+      console.log('onIncomingExecResult', incomingunit);
+    }
+    if(!this.destroyed){
+      return;
+    }
+    var iuid = incomingunit.id;
+    if(!iuid){
+      return;
+    }
+    var isess = incomingunit.session;
+    if(this.identity.session && (this.identity.session!==isess)){
+      var child = this.children.get(isess);
+      if(child){
+        child.onIncomingExecResult(incomingunit);
+      } 
+      return;
+    } 
+  };
+  Client.prototype.setChild = function(chld){
+    if(!(chld && chld.identity && chld.identity.session)){
+      console.log('NOT TAKING THIS CHILD', chld);
+      return;
+    }
+    if (!this.children) {
+      return;
+    }
+    var session = chld.identity.session;
+    var oldchld = this.children.replace(session,chld);
+    if(oldchld && (oldchld !== chld)){
+      oldchld.setOOBSink(chld);
+      oldchld.unlinkAndDestroy();
+    }
+  };
+  Client.prototype.removeChild = function(chld){
+    if(!(this.children && chld && chld.identity && chld.identity.session)){
+      return;
+    }
+    var session = chld.identity.session;
+    this.children.remove(session);
+    if(this.children.count<1) {
+      this.maybeDie();
+    }
+  };
+
+  var _subClientCount = 0;
+  function SubClient(subservicename,introduce,parnt){
+    //console.log('client introduced',subservicename,introduce);
+    //console.log(process.pid, 'new SubClient', ++_subClientCount);
+    this.subservicename = subservicename;
+    this._parent = parnt;
+    Client.call(this,introduce.session);
+    //console.log('SubClient',introduce.session,this._parent.identity.session);
+    this.identity.talkerid = introduce.session;
+    this.identity.set(introduce,null);
+    this._parent.setChild(this);
+  };
+  lib.inherit(SubClient,Client);
+  SubClient.prototype.__cleanUp = function(){
+    if(this._parent){
+      this._parent.removeChild(this);
+    }
+    this._parent = null;
+    this.subservicename = null;
+    Client.prototype.__cleanUp.call(this);
+    //console.log(process.pid, 'SubClient dead', --_subClientCount);
+  };
+  SubClient.prototype.onTalker = function (talker) {
+    Client.prototype.onTalker.call(this, talker);
+    this.exec(['!',['confirmReservation',[]]]).done(
+      null,
+      this.onConfirmReservationFailed.bind(this)
+    );
+  };
+  SubClient.prototype.unlinkAndDestroy = function(){
+    this._parent = null;
+    this.destroy();
+  };
+  SubClient.prototype.onConfirmReservationFailed = function(reason){
+    if (!this.destroyed) {
+      return;
+    }
+    if (this.identity) {
+      console.error(this.identity.session,'confirmReservation failed',reason);
+    }
+    this.destroy();
+  };
+  SubClient.prototype.obtainTalker = function () {
+    return this._parent.obtainTalker();
+  };
+
+  return Client;
+}
+
+module.exports = createClient;
+
+},{}],12:[function(require,module,exports){
+function createHttpClientBase (lib, Client, talkerFactory) {
+  'use strict';
+  var q = lib.q, _httpClientBaseCount = 0;
+  function HttpClientBase(connectionstring,address,port,session,credentials){
+    //console.log(process.pid, 'new HttpClientBase', address, port, ++_httpClientBaseCount);
+    this.connectionstring = connectionstring;
+    this.address = address;
+    this.port = port;
+    Client.call(this,session,credentials);
+  }
+  lib.inherit(HttpClientBase,Client);
+  HttpClientBase.prototype.__cleanUp = function(){
+    /*
+    console.trace();
+    console.log('HttpClientBase dying');
+    */
+    //console.log(process.pid, 'HttpClientBase dead', this.address, this.port, --_httpClientBaseCount);
+    this.port = null;
+    this.address = null;
+    this.connectionstring = null;
+    Client.prototype.__cleanUp.call(this);
+  };
+  HttpClientBase.prototype.createTalker = function () {
+    return talkerFactory(this.ChannelCode, this.connectionstring, this.address, this.port);
+  };
+
+  return HttpClientBase;
+}
+module.exports = createHttpClientBase;
+
+},{}],13:[function(require,module,exports){
+function createHTTPClient(lib, HttpClientBase){
+  'use strict';
+  function HttpClient(connectionstring, address, port, session, credentials){
+    HttpClientBase.call(this, connectionstring, address, port, session, credentials);
+  }
+  lib.inherit(HttpClient, HttpClientBase);
+  HttpClient.prototype.ChannelCode = 'http';
+
+  return HttpClient;
+}
+
+module.exports = createHTTPClient;
+
+},{}],14:[function(require,module,exports){
+var Url = require('url');
+
+function createClientFactory(lib, talkerFactory){
+  'use strict';
+  var Client = require('./clientcreator')(lib),
+    ChildProcClient = require('./childprocclientcreator')(lib, Client, talkerFactory),
+    ParallelProcClient = require('./parallelprocclientcreator')(lib, Client, talkerFactory),
+    SocketClient = require('./socketclientcreator')(lib, Client, talkerFactory),
+    HttpClientBase = require('./httpclientbasecreator')(lib, Client, talkerFactory),
+    WSClient = require('./wsclientcreator')(lib, HttpClientBase),
+    HTTPClient = require('./httpclientcreator')(lib, HttpClientBase),
+    InProcClient = require('./inprocclientcreator')(lib,Client,talkerFactory);
+
+  function forkpathFrom (csurlobj){
+    var forkpath = '';
+    if(csurlobj.hostname){
+      forkpath+=csurlobj.hostname;
+    }
+    if(csurlobj.pathname){
+      forkpath+=csurlobj.pathname;
+    }
+    return forkpath;
+  }
+
+  function produceClient(connectionstring,credentials,session){
+    var tocs = typeof connectionstring;
+    if('string' !== tocs){
+      if(connectionstring && connectionstring.authenticatorSink){
+        return new (InProcClient)(connectionstring,session,credentials);
+      }
+      return null;
+    }
+    var csurlobj = Url.parse(connectionstring,true);
+    switch(csurlobj.protocol){
+      case 'fork:':
+        return new (ChildProcClient)(forkpathFrom(csurlobj),csurlobj.query);
+      case 'spawn:':
+        return new (ParallelProcClient)(forkpathFrom(csurlobj),csurlobj.query);
+      case 'socket:':
+        return new (SocketClient)(csurlobj.hostname||csurlobj.pathname,csurlobj.port,session,credentials);
+        break;
+      case 'ws:':
+      case 'wss:':
+        return new (WSClient)(connectionstring,csurlobj.hostname||csurlobj.pathname,csurlobj.port,session,credentials);
+        break;
+      case 'http:':
+      case 'https:':
+        return new (HTTPClient)(connectionstring,csurlobj.hostname||csurlobj.pathname,csurlobj.port,session,credentials);
+        break;
+      default:
+        throw new lib.UnsupportedProtocolError(csurlobj.protocol);
+    }
+  }
+
+  return produceClient;
+}
+
+module.exports = createClientFactory;
+
+},{"./childprocclientcreator":10,"./clientcreator":11,"./httpclientbasecreator":12,"./httpclientcreator":13,"./inprocclientcreator":15,"./parallelprocclientcreator":16,"./socketclientcreator":17,"./wsclientcreator":18,"url":397}],15:[function(require,module,exports){
+function createInProcClient(lib,Client,talkerFactory){
+  'use strict';
+  var q = lib.q, _inProcClientCount = 0;
+  function InProcClient(inprocgate,session,credentials){
+    //console.log(process.pid, 'new InProcClient', ++_inProcClientCount);
+    this.gate = inprocgate;
+    Client.call(this,session,credentials);
+  }
+  lib.inherit(InProcClient,Client);
+  InProcClient.prototype.__cleanUp = function(){
+    Client.prototype.__cleanUp.call(this);
+    this.gate = null;
+    //console.log(process.pid, 'InProcClient dead', --_inProcClientCount);
+  };
+  InProcClient.prototype.createTalker = function () {
+    return q(talkerFactory('inproc', this.gate));
+  };
+  InProcClient.prototype.oobItemClone = function (item) {
+    return JSON.parse(JSON.stringify(item));
+  };
+  return InProcClient;
+}
+
+module.exports = createInProcClient;
+
+},{}],16:[function(require,module,exports){
+(function (process){(function (){
+function createParallelProcClient(lib, Client, talkerFactory) {
+  'use strict';
+  var q = lib.q, _ParallelProcessClientCount = 0;
+  function ParallelProcessClient(jstospawn, options) {
+    //console.log('ParallelProcessClient', process.pid, jstofork, options);
+    //console.log(process.pid, 'new ParallelProcessClient', ++_ParallelProcessClientCount);
+    this.jstospawn = jstospawn;
+    this.options = options;
+    Client.call(this, process.pid + '');
+  }
+  lib.inherit(ParallelProcessClient, Client);
+  ParallelProcessClient.prototype.__cleanUp = function () {
+    Client.prototype.__cleanUp.call(this);
+    this.options = null;
+    this.jstospawn = null;
+    //console.log(process.pid, 'ParallelProcessClient dead');//, --_ParallelProcessClientCount);
+  };
+  ParallelProcessClient.prototype.createTalker = function () {
+    return q(talkerFactory('externalproc', this.jstospawn, this.options));
+  };
+  ParallelProcessClient.prototype.communicationType = 'parallel_process';
+  return ParallelProcessClient;
+}
+
+module.exports = createParallelProcClient;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],17:[function(require,module,exports){
+function createTCPClient(lib, Client, talkerFactory){
+  'use strict';
+  var q = lib.q;
+  var _socketClientCount = 0, _id = 0;
+  function SocketClient(address, port, session, credentials) {
+    this.id = ++_id;
+    //console.log(process.pid, 'new SocketClient', this.id, ++_socketClientCount, address, port);
+    this.address = address;
+    this.port = port;
+    Client.call(this, session, credentials);
+  }
+  lib.inherit(SocketClient, Client);
+  SocketClient.prototype.__cleanUp = function () {
+    //console.log(process.pid, 'SocketClient dead', this.id, --_socketClientCount, this.address, this.port);
+    Client.prototype.__cleanUp.call(this);
+    this.port = null;
+    this.address = null;
+  };
+  SocketClient.prototype.createTalker = function () {
+    var ret = talkerFactory('initiatingsocket', this.address, this.port);
+    ret.then(null, this.destroy.bind(this));
+    return ret;
+  };
+
+  return SocketClient;
+}
+
+module.exports = createTCPClient;
+
+},{}],18:[function(require,module,exports){
+function createWSClient(lib, HttpClientBase){
+  'use strict';
+  var q = lib.q, _wsClientCount = 0;
+  function WSClient(connectionstring,address,port,session,credentials){
+    HttpClientBase.call(this, connectionstring, address, port, session, credentials);
+  }
+  lib.inherit(WSClient,HttpClientBase);
+  WSClient.prototype.ChannelCode = 'ws';
+
+  return WSClient;
+}
+
+module.exports = createWSClient;
+
+},{}],19:[function(require,module,exports){
 function createDeferFifo(doublelinkedlistbase, inherit, q) {
   'use strict';
 
@@ -1800,7 +2528,7 @@ function createDeferFifo(doublelinkedlistbase, inherit, q) {
 
 module.exports = createDeferFifo;
 
-},{}],10:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 function createlib (Map, q) {
   'use strict';
 
@@ -1870,13 +2598,197 @@ function createlib (Map, q) {
 
 module.exports = createlib;
 
-},{}],11:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
+function createLoadDeps(execlib) {
+  'use strict';
+
+  var lib = execlib.lib,
+    q = lib.q,
+    qlib = lib.qlib;
+
+  function dodaThrow (lib, string1, string2) {
+    throw new lib.Error(string1, string2);
+  }
+
+  function getmodulename (side, modulename) {
+    return recognizemodule.bind(null, side, modulename);
+  }
+
+  function recognizemodule (side, modulename) {
+    var r;
+    switch (modulename) {
+      case '.':
+        r = q({
+          modulename: '.',
+          group: 'services'
+        });
+        break;
+      case '.authentication':
+        r = q({
+          modulename: '.authentication',
+          group: 'services'
+        });
+        break;
+      default: 
+        r = lib.moduleRecognition(modulename);
+        break;
+    }
+    return r.then(onmodulename.bind(null, side, modulename));
+  };
+
+  function onAdditionalGroup (r) {
+    var registry = execlib.execSuite && execlib.execSuite.additionalRegistries && execlib.execSuite.additionalRegistries.get(r.group);
+    if (registry) {
+      return registry.register(r.modulename);
+    }
+    console.error('Unable to load registry for type '+r.group);
+    dodaThrow(lib, 'MISSING_REGISTRY', 'Unable to load registry for type '+r.group);
+  }
+
+  function onmodulename (side, modulename, r) {
+    var registry;
+    try {
+    if (!r || lib.isString(r)) dodaThrow(lib, 'NON_ALLEX_MODULE', 'Unable to recognize '+modulename+' as Allex module');
+    switch (r.group) {
+      case 'services':
+        registry = execlib.execSuite.registry;
+        if (side === 'server') {
+          return registry.registerServerSide(r.modulename);
+        }
+        if (side === 'client') {
+          return registry.registerClientSide(r.modulename);
+        }
+        throw lib.Error('INVALID_LOAD_DEPENDENCIES_SIDE', side);
+        break;
+      case 'libs':
+        return execlib.execSuite.libRegistry.register(r.modulename);
+      default:
+        return onAdditionalGroup(r);
+    }
+    } catch(e) {
+      console.error(e.stack);
+      console.error(e);
+    }
+  }
+
+  function loadDependencies (side, modules, cb){
+    var s = side, ret;
+    ret = (new qlib.PromiseExecutionMapReducerJob(modules.map (getmodulename.bind(null, s)), null, cb)).go();
+    s = null;
+    return ret;
+  }
+  return loadDependencies;
+}
+
+module.exports = createLoadDeps;
+
+},{}],22:[function(require,module,exports){
+function createDependentMethod(lib) {
+  'use strict';
+  var q = lib.q;
+
+  function InvokerWaiter(instance, multis, args, invoker) {
+    this.instance = instance;
+    this.args = args;
+    this.invoker = invoker;
+    this.satisfaction = lib.ListenableMap.multiListenForMulti(multis, this.onOK.bind(this));
+    this.satisfaction.trigger();
+  }
+  InvokerWaiter.prototype.destroy = function () {
+    if (this.satisfaction) {
+      this.satisfaction.destroy();
+    }
+    this.satisfaction = null;
+    this.invoker = null;
+    this.args = null;
+    this.instance = null;
+  };
+  InvokerWaiter.prototype.onOK = function (all) {
+    if (!this.invoker) {
+      return;
+    }
+    this.invoker.apply(this.instance,all.concat(this.args));
+    this.destroy();
+  };
+
+  function superinvoker(func) {
+    return function () {
+      var ret = func.apply(this, arguments);
+      if (!q.isPromise(ret)) {
+        return q.reject(new lib.Error('PARAMETERS_LENGTH_MISMATCH'));
+      }
+      return ret;
+    }
+  }
+
+  function mapFetcher(name) {
+    var names = name.split('.'), mapobj = {ctx: this, map: null}, ret;
+    names.forEach(function(n){
+      if (mapobj.ctx) {
+        mapobj.map = mapobj.ctx[n];
+        mapobj.ctx = mapobj.map;
+      }
+    });
+    ret = mapobj.map;
+    mapobj.ctx = null;
+    mapobj.map = null;
+    mapobj = null;
+    return ret;
+  }
+
+  function resolvedMulti(sm) {
+    return {map: mapFetcher.call(this, sm.mapname), names: sm.names.slice()};
+  }
+
+  function resolvemaps(symbolicmultis){
+    return symbolicmultis.map(resolvedMulti.bind(this));
+  }
+
+  function nameslength(result, multi) {
+    return result + multi.names.length;
+  }
+
+  function dependentMethod (symbolicmultis, func) {
+    var multinameslen = symbolicmultis.reduce(nameslength,0),
+      outerparamcount = func.length-multinameslen;
+    if (outerparamcount<1) {
+      throw new lib.Error('INVALID_PARAMETER_LIST_FOR_INNER_FUNC','Number of formal input parameters for the real handler must be larger of number of items in the subservice names array by at least one');
+    }
+    function invoker () {
+      var args = Array.prototype.slice.call(arguments),
+        multis = resolvemaps.call(this,symbolicmultis),
+        defer;
+      if (args.length < outerparamcount) {
+        if (args.length < outerparamcount-1) {
+          console.error(args, 'are too short, should be', outerparamcount-1, 'at least');
+          throw new lib.Error('NUMBER_OF_INPUT_PARAMS_TOO_LOW');
+        }
+        defer = q.defer();
+        args.push(defer);
+      }
+      if (args.length > outerparamcount) {
+        console.error(args, 'are too long, should be', outerparamcount, 'at most');
+        throw new lib.Error('NUMBER_OF_INPUT_PARAMS_TOO_HIGH');
+      }
+      new InvokerWaiter(this, multis, args, func);
+      return args[args.length-1].promise;
+    }
+    return superinvoker(invoker);
+  };
+
+  return dependentMethod;
+}
+
+module.exports = createDependentMethod;
+
+},{}],23:[function(require,module,exports){
 module.exports = function(inherit, Destroyable, _EventEmitter) {
   var __id = 0;
   function ComplexDestroyable(){
     //this.__id = ++__id;
     Destroyable.call(this);
     this.aboutToDie = new _EventEmitter();
+    this.initialException = null;
     //console.log(process.pid, this.__id, 'created', this.destroyed);
   };
   inherit(ComplexDestroyable,Destroyable);
@@ -1884,17 +2796,22 @@ module.exports = function(inherit, Destroyable, _EventEmitter) {
     if (!this.destroyed) {
       return;
     }
+    if (!this.initialException) {
+      this.initialException = exception;
+    }
+    exception = exception || this.initialException;
     var d = this.aboutToDie;
     this.aboutToDie = null;
     if(d){
       //console.log(this.__id,'was not dying before, startTheDyingProcedure');
       d.fire(this);
       d.destroy();
-      this.startTheDyingProcedure();
+      this.startTheDyingProcedure(exception);
     }
     if (this.shouldDie()) {
+      this.initialException = null;
       //console.log(process.pid, this.__id, 'ComplexDestroyable dying', this.destroyed);
-      if (arguments.length) {
+      if (exception) {
         Destroyable.prototype.destroy.call(this, exception);
       } else {
         Destroyable.prototype.destroy.call(this);
@@ -1927,7 +2844,7 @@ module.exports = function(inherit, Destroyable, _EventEmitter) {
       this.destroy();
     }
   };
-  ComplexDestroyable.prototype.startTheDyingProcedure = function(){
+  ComplexDestroyable.prototype.startTheDyingProcedure = function(exception){
   };
   ComplexDestroyable.prototype.dyingCondition = function(){
     return true;
@@ -1935,7 +2852,7 @@ module.exports = function(inherit, Destroyable, _EventEmitter) {
   return ComplexDestroyable;
 };
 
-},{}],12:[function(require,module,exports){
+},{}],24:[function(require,module,exports){
 module.exports = function (dummyFunc, _EventEmitter) {
   'use strict';
   function DestroyableExtender(destroyable,extendee){
@@ -2009,7 +2926,7 @@ module.exports = function (dummyFunc, _EventEmitter) {
   return Destroyable;
 };
 
-},{}],13:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 module.exports = function (inheritMethods, dummyFunc) {
   'use strict';
 
@@ -2026,7 +2943,7 @@ module.exports = function (inheritMethods, dummyFunc) {
   return SimpleDestroyable;
 };
 
-},{}],14:[function(require,module,exports){
+},{}],26:[function(require,module,exports){
 module.exports = function (inheritlib, dummyFunc, _EventEmitter) {
   'use strict';
   var Destroyable = require('./Destroyable.js')(dummyFunc, _EventEmitter);
@@ -2037,7 +2954,7 @@ module.exports = function (inheritlib, dummyFunc, _EventEmitter) {
   };
 };
 
-},{"./ComplexDestroyable.js":11,"./Destroyable.js":12,"./SimpleDestroyable.js":13}],15:[function(require,module,exports){
+},{"./ComplexDestroyable.js":23,"./Destroyable.js":24,"./SimpleDestroyable.js":25}],27:[function(require,module,exports){
 function createLib(isFunction,isArray,isNumber,isString){
   'use strict';
 
@@ -2174,7 +3091,7 @@ function createLib(isFunction,isArray,isNumber,isString){
 
 module.exports = createLib;
 
-},{}],16:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 function createlib (Map, DeferMap, ListenableMap, q, qext, containerDestroyAll) {
   'use strict';
 
@@ -2182,9 +3099,14 @@ function createlib (Map, DeferMap, ListenableMap, q, qext, containerDestroyAll) 
     this._instanceMap = new ListenableMap();
     this._deferMap = new DeferMap ();
     this._listeners_map = new Map();
+    this._creationQ = new qext.JobCollection();
   }
 
   DIContainer.prototype.destroy = function () {
+    if (this._creationQ) {
+      this._creationQ.destroy();
+    }
+    this._creationQ = null;
     if (this._listeners_map) {
       containerDestroyAll(this._listeners_map);
       this._listeners_map.destroy();
@@ -2303,15 +3225,107 @@ function createlib (Map, DeferMap, ListenableMap, q, qext, containerDestroyAll) 
     return !!this._instanceMap.get(modulename) || this._deferMap.exists(modulename);
   };
 
+  DIContainer.prototype.queueCreation = function (modulename, creationfunc) {
+    var ret, check;
+    check = this._instanceMap.get(modulename);
+    if (typeof(check) == 'undefined') {
+      ret = this.waitFor(modulename);
+      this._creationQ.run('.', new CreationJob(this, modulename, creationfunc));
+    }
+    return ret || this.waitFor(modulename);
+  };
+
   DIContainer.prototype.traverse = function (cb) {
     return this._instanceMap.traverse(cb);
   };
+
+
+  // CreationJob
+  function CreationJob (dicont, depname, creationfunc) {
+    qext.JobOnDestroyableBase.call(this, dicont, creationfunc);
+    this.dicont = dicont;
+    this.depname = depname;
+    this.creationfunc = creationfunc;
+  }
+  CreationJob.prototype = Object.create(qext.JobOnDestroyableBase.prototype,{constructor:{
+    value: CreationJob,
+    enumerable: false,
+    configurable: false,
+    writable: false
+  }});
+  CreationJob.prototype.destroy = function () {
+    this.creationfunc = null;
+    this.depname = null;
+    this.dicont = null;
+    qext.JobOnDestroyableBase.prototype.destroy.call(this);
+  };
+  CreationJob.prototype._destroyableOk = function () {
+    if (!this.destroyable) {
+      throw new Error('No DIContainer');
+    }
+    if (!this.destroyable._instanceMap) {
+      throw new Error('DIContainer destroyed');
+    }
+    return true;
+  };
+  CreationJob.prototype.go = function () {
+    var ok, check, ret;
+    ok = this.okToGo();
+    if (!ok.ok) {
+      return ok.val;
+    }
+    if (!this.dicont) {
+      this.reject(new Error('DIContainer is gone'));
+      return ok.val;
+    }
+    if (!(this.creationfunc && typeof(this.creationfunc)=='function')) {
+      this.reject(new Error('No creation function'));
+      return ok.val;
+    }
+    check = this.dicont.get(this.depname);
+    if (typeof(check) !== 'undefined') {
+      this.resolve(check);
+      return ok.val;
+    }
+    try {
+      check = this.creationfunc();
+    } catch (e) {
+      this.reject(e);
+      return ok.val;
+    }
+
+    if (!q.isThenable(check)) {
+      this.onCreationSuccess(check);
+      return ok.val;
+    }
+    check.then(
+      this.onCreationSuccess.bind(this),
+      this.onCreationSuccess.bind(this, null)
+    );
+    return ok.val;
+  };
+  CreationJob.prototype.onCreationSuccess = function (instance, creationerror) {
+    if (creationerror) {
+      console.error('Creation Error', creationerror);
+      this.reject(creationerror);
+      return;
+    }
+    if (instance && instance.destroyed && instance.destroyed.attach) {
+      this.dicont.registerDestroyable(this.depname, instance);
+    } else {
+      this.dicont.register(this.depname, instance);
+    }
+    this.resolve(true);
+  };
+
+  
+  // CreationJob end
 
   return DIContainer;
 }
 module.exports = createlib;
 
-},{}],17:[function(require,module,exports){
+},{}],29:[function(require,module,exports){
 (function (process){(function (){
 var Iterator = require('./Iterator'),
   ItemWithDistance = require('./ItemWithDistance'),
@@ -2671,7 +3685,7 @@ DListController.prototype.check = function () {
 module.exports = DListController;
 
 }).call(this)}).call(this,require('_process'))
-},{"./ItemWithDistance":19,"./Iterator":20,"./assert":22,"_process":332}],18:[function(require,module,exports){
+},{"./ItemWithDistance":31,"./Iterator":32,"./assert":34,"_process":355}],30:[function(require,module,exports){
 'use strict';
 
 var ItemWithDistance = require('./ItemWithDistance'),
@@ -2760,7 +3774,7 @@ DListItem.prototype.setIterator = function (iterator) {
 
 module.exports = DListItem;
 
-},{"./ItemWithDistance":19,"./assert":22}],19:[function(require,module,exports){
+},{"./ItemWithDistance":31,"./assert":34}],31:[function(require,module,exports){
 'use strict';
 
 var _item;
@@ -2819,7 +3833,7 @@ module.exports = {
   distance: getDistance
 };
 
-},{}],20:[function(require,module,exports){
+},{}],32:[function(require,module,exports){
 'use strict';
 
 var assert = require('./assert');
@@ -2897,7 +3911,7 @@ Iterator.prototype.checkTargetItem = function () {
 
 module.exports = Iterator;
 
-},{"./assert":22}],21:[function(require,module,exports){
+},{"./assert":34}],33:[function(require,module,exports){
 'use strict';
 
 var ControllerCtor = require('./DList');/*,
@@ -2984,7 +3998,7 @@ ListMixin.prototype.purge = function () {
 
 module.exports = ListMixin;
 
-},{"./DList":17}],22:[function(require,module,exports){
+},{"./DList":29}],34:[function(require,module,exports){
 'use strict';
 function assert(thingy) {
   //TODO check if thingy is boolean
@@ -2996,13 +4010,13 @@ function assert(thingy) {
 
 module.exports = assert;
 
-},{}],23:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 module.exports = {
   Mixin: require('./ListMixin'),
   Item: require('./DListItem')
 };
 
-},{"./DListItem":18,"./ListMixin":21}],24:[function(require,module,exports){
+},{"./DListItem":30,"./ListMixin":33}],36:[function(require,module,exports){
 function createDoubleLinkedList(doublelinkedlistbase, inherit) {
   'use strict';
 
@@ -3097,7 +4111,7 @@ function createDoubleLinkedList(doublelinkedlistbase, inherit) {
 module.exports = createDoubleLinkedList;
 
 
-},{}],25:[function(require,module,exports){
+},{}],37:[function(require,module,exports){
 function createAllexError(inherit){
   function AllexError(code,description){
     var ret = Error.call(this,description);
@@ -3110,7 +4124,7 @@ function createAllexError(inherit){
 
 module.exports = createAllexError;
 
-},{}],26:[function(require,module,exports){
+},{}],38:[function(require,module,exports){
 (function (process){(function (){
 function createHookCollection(doublelinkedlistlib, inherit, isFunction, isArrayOfFunctions){
   var ListMixin = doublelinkedlistlib.Mixin,
@@ -3244,7 +4258,7 @@ function createHookCollection(doublelinkedlistlib, inherit, isFunction, isArrayO
 module.exports = createHookCollection;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],27:[function(require,module,exports){
+},{"_process":355}],39:[function(require,module,exports){
 (function (process){(function (){
 function createFifo(doublelinkedlistbase, inherit) {
   'use strict';
@@ -3368,7 +4382,7 @@ function createFifo(doublelinkedlistbase, inherit) {
 module.exports = createFifo;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],28:[function(require,module,exports){
+},{"_process":355}],40:[function(require,module,exports){
 'use strict';
 
 function dummyFunc() {}
@@ -3397,7 +4411,7 @@ function createFunctionManipulation(inherit) {
 
 module.exports = createFunctionManipulation;
 
-},{}],29:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 (function (Buffer){(function (){
 function makeHTTPRequest(traverseShallow, isFunction, dummyFunc){
 
@@ -3742,7 +4756,7 @@ function makeHTTPRequest(traverseShallow, isFunction, dummyFunc){
 module.exports = makeHTTPRequest;
 
 }).call(this)}).call(this,require("buffer").Buffer)
-},{"buffer":240,"url":375}],30:[function(require,module,exports){
+},{"buffer":251,"url":397}],42:[function(require,module,exports){
 function inherit (child, parnt) {
   child.prototype = Object.create(parnt.prototype,{constructor:{
     value: child,
@@ -3770,7 +4784,7 @@ module.exports = {
   inheritMethods: inheritMethods
 };
 
-},{}],31:[function(require,module,exports){
+},{}],43:[function(require,module,exports){
 function createEquals(traverseShallowConditionally) {
   'use strict';
   function equalElements (b, aitem, aindex) {
@@ -3820,7 +4834,7 @@ function createEquals(traverseShallowConditionally) {
 
 module.exports = createEquals;
 
-},{}],32:[function(require,module,exports){
+},{}],44:[function(require,module,exports){
 //safe JSON.stringify taken and modified from https://github.com/isaacs/json-stringify-safe
  
 function stringify(obj, replacer, spaces, cycleReplacer) {
@@ -3867,7 +4881,7 @@ function createJSONizingError(AllexError, inherit) {
 module.exports = createJSONizingError;
 
 
-},{}],33:[function(require,module,exports){
+},{}],45:[function(require,module,exports){
 function createListenableMap(Map, _EventEmitter, inherit, runNext, isArray, isDefined, isDefinedAndNotNull, containerDestroyDeep, arryDestroyAll) {
   'use strict';
 
@@ -4129,7 +5143,7 @@ function createListenableMap(Map, _EventEmitter, inherit, runNext, isArray, isDe
 
 module.exports = createListenableMap;
 
-},{}],34:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 (function (process){(function (){
 // Taken from https://github.com/bevry/getmac, js-ed from coffeescript
 var exec = require('child_process').exec;
@@ -4237,7 +5251,7 @@ module.exports = createMacAddressLib;
 
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332,"child_process":238}],35:[function(require,module,exports){
+},{"_process":355,"child_process":249}],47:[function(require,module,exports){
 function plainCompare(a,b){
   if(a===b){
     return 0;
@@ -4417,7 +5431,7 @@ function createMap (avltreelib, inherit) {
 
 module.exports = createMap;
 
-},{}],36:[function(require,module,exports){
+},{}],48:[function(require,module,exports){
 function createResolutionLib (isString, isFunction, q, qlib) {
   'use strict';
 
@@ -4431,7 +5445,7 @@ function createResolutionLib (isString, isFunction, q, qlib) {
 
 module.exports = createResolutionLib;
 
-},{"./nsfetching":37,"./resolvercreator":39}],37:[function(require,module,exports){
+},{"./nsfetching":49,"./resolvercreator":51}],49:[function(require,module,exports){
 function createNSFetching (isString, q, qlib) {
   'use strict';
 
@@ -4503,7 +5517,7 @@ function createNSFetching (isString, q, qlib) {
 
 module.exports = createNSFetching;
 
-},{"./fetchercreator":38}],38:[function(require,module,exports){
+},{"./fetchercreator":50}],50:[function(require,module,exports){
 function createNSFetcher (q, qlib) {
 
   function fetchNSS () {
@@ -4516,7 +5530,7 @@ function createNSFetcher (q, qlib) {
 module.exports = createNSFetcher;
 
 
-},{}],39:[function(require,module,exports){
+},{}],51:[function(require,module,exports){
 function createResolver (isString, isFunction, q, qlib) {
   'use strict';
 
@@ -4561,7 +5575,7 @@ function createResolver (isString, isFunction, q, qlib) {
 
 module.exports = createResolver;
 
-},{"./stringanalysis":41}],40:[function(require,module,exports){
+},{"./stringanalysis":53}],52:[function(require,module,exports){
 'use strict';
 
 function gitsshnpmstring (desc, reponame) {
@@ -4577,7 +5591,7 @@ module.exports = {
   gitclonestring: gitclonestring
 }
 
-},{}],41:[function(require,module,exports){
+},{}],53:[function(require,module,exports){
 function createModuleRecognition (q, qlib) {
   'use strict';
   var qnull = q(null),
@@ -4679,7 +5693,7 @@ function createModuleRecognition (q, qlib) {
 
 module.exports = createModuleRecognition;
 
-},{"./descuser":40,"./shortnotationexpandercreator":42}],42:[function(require,module,exports){
+},{"./descuser":52,"./shortnotationexpandercreator":54}],54:[function(require,module,exports){
 function createShortNotationExpander (q, qlib) {
   'use strict';
   var DEFAULT_SUFFIX = 'service',
@@ -4742,7 +5756,7 @@ function createShortNotationExpander (q, qlib) {
 
 module.exports = createShortNotationExpander;
 
-},{"./descuser":40}],43:[function(require,module,exports){
+},{"./descuser":52}],55:[function(require,module,exports){
 function createNotAnAllexErrorError(AllexError,inherit){
   function NotAnAllexErrorError(error){
     var ret = new AllexError('NOT_AN_ALLEX_ERROR','Error thrown is not an AllexError');
@@ -4754,7 +5768,7 @@ function createNotAnAllexErrorError(AllexError,inherit){
 
 module.exports = createNotAnAllexErrorError;
 
-},{}],44:[function(require,module,exports){
+},{}],56:[function(require,module,exports){
 function createExtend2(typecheckers, doconcat) {
   'use strict';
   return function extend2(dest,src) {
@@ -4792,7 +5806,7 @@ function createExtend2(typecheckers, doconcat) {
 
 module.exports = createExtend2;
 
-},{}],45:[function(require,module,exports){
+},{}],57:[function(require,module,exports){
 function createExtender (extend2) {
   return function extend() {
     if (arguments.length<1) {
@@ -4811,7 +5825,7 @@ function createExtender (extend2) {
 
 module.exports = createExtender;
 
-},{}],46:[function(require,module,exports){
+},{}],58:[function(require,module,exports){
 function createExtendShallow(typecheckers) {
   'use strict';
   function extend2Shallow(dest,src) {
@@ -4841,7 +5855,7 @@ function createExtendShallow(typecheckers) {
 
 module.exports = createExtendShallow;
 
-},{}],47:[function(require,module,exports){
+},{}],59:[function(require,module,exports){
 function createObjectManipulators (typecheckers) {
   'use strict';
   function traverseShallow(entity,cb){
@@ -4969,7 +5983,7 @@ function createObjectManipulators (typecheckers) {
 
 module.exports = createObjectManipulators;
 
-},{"./extend2":44,"./extender":45,"./extendshallow":46}],48:[function(require,module,exports){
+},{"./extend2":56,"./extender":57,"./extendshallow":58}],60:[function(require,module,exports){
 module.exports = function (inheritMethods, isFunction) {
   'use strict';
 
@@ -4996,7 +6010,7 @@ module.exports = function (inheritMethods, isFunction) {
   return CBMapable;
 };
 
-},{}],49:[function(require,module,exports){
+},{}],61:[function(require,module,exports){
 module.exports = function (inheritlib, ChangeableListenable, Destroyable, Gettable, Changeable) {
   function CLDestroyable () {
     ChangeableListenable.call(this);
@@ -5014,7 +6028,7 @@ module.exports = function (inheritlib, ChangeableListenable, Destroyable, Gettab
   return CLDestroyable;
 }
 
-},{}],50:[function(require,module,exports){
+},{}],62:[function(require,module,exports){
 module.exports = function (inheritMethods, isFunction, _EventEmitter, Gettable, Settable) {
   'use strict';
 
@@ -5051,7 +6065,7 @@ module.exports = function (inheritMethods, isFunction, _EventEmitter, Gettable, 
   return Changeable;
 };
 
-},{}],51:[function(require,module,exports){
+},{}],63:[function(require,module,exports){
 module.exports = function (inherit, Gettable, Changeable, Listenable) {
   'use strict';
 
@@ -5081,7 +6095,7 @@ module.exports = function (inherit, Gettable, Changeable, Listenable) {
   return ChangeableListenable;
 };
 
-},{}],52:[function(require,module,exports){
+},{}],64:[function(require,module,exports){
 module.exports = function (inheritMethods, extend, jsonschema, readPropertyFromDotDelimitedString, writePropertyFromDelimitedString, isArray) {
   'use strict';
 
@@ -5148,7 +6162,7 @@ module.exports = function (inheritMethods, extend, jsonschema, readPropertyFromD
   return Configurable;
 };
 
-},{"jsonschema":106}],53:[function(require,module,exports){
+},{"jsonschema":178}],65:[function(require,module,exports){
 module.exports = function (inheritMethods, dummyFunc) {
   'use strict';
   function Gettable(){
@@ -5186,7 +6200,7 @@ module.exports = function (inheritMethods, dummyFunc) {
   return Gettable;
 };
 
-},{}],54:[function(require,module,exports){
+},{}],66:[function(require,module,exports){
 module.exports = function (inheritMethods, dummyFunc, isFunction, _EventEmitter) {
   'use strict';
   function filterEvent(cb,targetpropname,propname,propval){
@@ -5223,7 +6237,7 @@ module.exports = function (inheritMethods, dummyFunc, isFunction, _EventEmitter)
   return Listenable;
 };
 
-},{}],55:[function(require,module,exports){
+},{}],67:[function(require,module,exports){
 module.exports = function (inheritMethods, dummyFunc, isFunction, Gettable) {
   'use strict';
 
@@ -5263,7 +6277,7 @@ module.exports = function (inheritMethods, dummyFunc, isFunction, Gettable) {
   return Settable;
 };
 
-},{}],56:[function(require,module,exports){
+},{}],68:[function(require,module,exports){
 module.exports = function (inheritlib, dummyFunc, _EventEmitter, extend, Destroyable, jsonschema, readPropertyFromDotDelimitedString, isFunction, isArray, writePropertyFromDelimitedString) {
   'use strict';
   var Gettable = require('./Gettable.js')(inheritlib.inheritMethods, dummyFunc),
@@ -5283,7 +6297,7 @@ module.exports = function (inheritlib, dummyFunc, _EventEmitter, extend, Destroy
   };
 };
 
-},{"./CBMapable.js":48,"./CLDestroyable.js":49,"./Changeable.js":50,"./ChangeableListenable.js":51,"./Configurable.js":52,"./Gettable.js":53,"./Listenable":54,"./Settable":55}],57:[function(require,module,exports){
+},{"./CBMapable.js":60,"./CLDestroyable.js":61,"./Changeable.js":62,"./ChangeableListenable.js":63,"./Configurable.js":64,"./Gettable.js":65,"./Listenable":66,"./Settable":67}],69:[function(require,module,exports){
 function create(q, runNext){
   /// todo: introduce policies .... reject if first rejected, reject if any rejected, but execute all, pass results to next and so on ...
   function Chainer(ftions) {
@@ -5336,7 +6350,7 @@ function create(q, runNext){
 
 module.exports = create;
 
-},{}],58:[function(require,module,exports){
+},{}],70:[function(require,module,exports){
 function createlib (q, inherit, runNext, Fifo, Map, containerDestroyAll, dummyFunc) {
   'use strict';
 
@@ -5583,13 +6597,14 @@ function createlib (q, inherit, runNext, Fifo, Map, containerDestroyAll, dummyFu
 
   ret.PromiseChainMapReducerJob = require('./promiseexecutionmapreducercreator')(inherit, applier, JobBase, PromiseMapperJob);
   ret.PromiseExecutionMapReducerJob = require('./promiseexecutionmapreducercreator')(inherit, applier, JobBase, PromiseExecutionMapperJob);
+  require('./steppedjobcreator')(q, inherit, ret);
   
   return ret;
 }
 
 module.exports = createlib;
 
-},{"./chainpromises":57,"./jobbasecreator":59,"./jobcollectioncreator":60,"./joboncomplexdestroyablecreator":61,"./jobondestroyablebasecreator":62,"./jobondestroyablecreator":63,"./promisearrayfulfillerjob":64,"./promisechainerjobcreator":65,"./promiseexecutionmapreducercreator":66,"./promiseexecutorjobcreator":67,"./promisehistorychainerjobcreator":68,"./promisemapperjobcreator":69}],59:[function(require,module,exports){
+},{"./chainpromises":69,"./jobbasecreator":71,"./jobcollectioncreator":72,"./joboncomplexdestroyablecreator":73,"./jobondestroyablebasecreator":74,"./jobondestroyablecreator":75,"./promisearrayfulfillerjob":76,"./promisechainerjobcreator":77,"./promiseexecutionmapreducercreator":78,"./promiseexecutorjobcreator":79,"./promisehistorychainerjobcreator":80,"./promisemapperjobcreator":81,"./steppedjobcreator":82}],71:[function(require,module,exports){
 function createJobBase(q) {
   'use strict';
 
@@ -5667,7 +6682,7 @@ function createJobBase(q) {
 
 module.exports = createJobBase;
 
-},{}],60:[function(require,module,exports){
+},{}],72:[function(require,module,exports){
 function createJobCollection(Fifo, Map, containerDestroyAll) {
   'use strict';
 
@@ -5703,7 +6718,23 @@ function createJobCollection(Fifo, Map, containerDestroyAll) {
     }
   };
   Lock.prototype.activate = function (job) {
-    var p = job.defer.promise;
+    var p;
+    if (!job) {
+      console.log('no job to activate, going next');
+      this.nexter();
+      return;
+    }
+    if (!job.defer) {
+      console.log('job', job.constructor.name, 'has no defer, going next');
+      this.nexter();
+      return;
+    }
+    if (!job.defer.promise) {
+      console.log('job', job.constructor.name, 'has no promise on defer, going next');
+      this.nexter();
+      return;
+    }
+    p = job.defer.promise;
     p.then(
       this.nexter,
       this.nexter
@@ -5756,7 +6787,7 @@ function createJobCollection(Fifo, Map, containerDestroyAll) {
 
 module.exports = createJobCollection;
 
-},{}],61:[function(require,module,exports){
+},{}],73:[function(require,module,exports){
 function createJobOnComplexDestroyable (inherit, JobOnDestroyableBase) {
   'use strict';
 
@@ -5772,7 +6803,7 @@ function createJobOnComplexDestroyable (inherit, JobOnDestroyableBase) {
 }
 module.exports = createJobOnComplexDestroyable;
 
-},{}],62:[function(require,module,exports){
+},{}],74:[function(require,module,exports){
 function createJobOnDestroyableBase (q, inherit, JobBase) {
   'use strict';
 
@@ -5806,7 +6837,7 @@ function createJobOnDestroyableBase (q, inherit, JobBase) {
 }
 module.exports = createJobOnDestroyableBase;
 
-},{}],63:[function(require,module,exports){
+},{}],75:[function(require,module,exports){
 function createJobOnDestroyable (inherit, JobOnDestroyableBase) {
   'use strict';
 
@@ -5822,7 +6853,7 @@ function createJobOnDestroyable (inherit, JobOnDestroyableBase) {
 }
 module.exports = createJobOnDestroyable;
 
-},{}],64:[function(require,module,exports){
+},{}],76:[function(require,module,exports){
 function createPromiseArrayFulfillerJob(q, inherit, JobBase) {
   'use strict';
 
@@ -5865,7 +6896,7 @@ function createPromiseArrayFulfillerJob(q, inherit, JobBase) {
 module.exports = createPromiseArrayFulfillerJob;
 
 
-},{}],65:[function(require,module,exports){
+},{}],77:[function(require,module,exports){
 function createPromiseChainerJob(inherit, PromiseArrayFulfillerJob) {
   'use strict';
 
@@ -5883,7 +6914,7 @@ function createPromiseChainerJob(inherit, PromiseArrayFulfillerJob) {
 
 module.exports = createPromiseChainerJob;
 
-},{}],66:[function(require,module,exports){
+},{}],78:[function(require,module,exports){
 function createPromiseExecutionMapReducer (inherit, applier, JobBase, MapperJob) {
 
   function PromiseExecutionMapReducer(promiseproviderarry, paramarry, fn, ctx) {
@@ -5915,7 +6946,7 @@ function createPromiseExecutionMapReducer (inherit, applier, JobBase, MapperJob)
 
 module.exports = createPromiseExecutionMapReducer;
 
-},{}],67:[function(require,module,exports){
+},{}],79:[function(require,module,exports){
 function createPromiseExecutorJob(inherit, PromiseArrayFulfillerJob) {
   'use strict';
 
@@ -5933,7 +6964,7 @@ function createPromiseExecutorJob(inherit, PromiseArrayFulfillerJob) {
 
 module.exports = createPromiseExecutorJob;
 
-},{}],68:[function(require,module,exports){
+},{}],80:[function(require,module,exports){
 function createPromiseHistoryChainer(q, inherit, JobBase, PromiseChainerJob) {
   'use strict';
   
@@ -5981,7 +7012,7 @@ function createPromiseHistoryChainer(q, inherit, JobBase, PromiseChainerJob) {
 
 module.exports = createPromiseHistoryChainer;
 
-},{}],69:[function(require,module,exports){
+},{}],81:[function(require,module,exports){
 function createPromiseMapper(q, inherit, JobBase, PromiseArrayFulfillerJob) {
   'use strict';
   
@@ -6031,7 +7062,146 @@ function createPromiseMapper(q, inherit, JobBase, PromiseArrayFulfillerJob) {
 
 module.exports = createPromiseMapper;
 
-},{}],70:[function(require,module,exports){
+},{}],82:[function(require,module,exports){
+function createSteppedJob (q, inherit, mylib) {
+  'use strict';
+
+  var JobBase = mylib.JobBase;
+
+  function isFunction (thingy) {
+    return thingy && (typeof thingy === 'function');
+  }
+
+  function isArray (thingy) {
+    return 'object' === typeof(thingy) && thingy instanceof Array;
+  }
+
+  function SteppedJob (config, defer) {
+    JobBase.call(this, defer);
+    this.config = config;
+    this.notifyListener = null;
+    this.step = -1; //will be bumped to zero in first runStep
+    if (config.notify && isFunction(config.notify.attach)){
+      this.notifyListener = config.notify.attach(this.notify.bind(this));
+    }
+  }
+  inherit(SteppedJob, JobBase);
+  SteppedJob.prototype.destroy = function () {
+    if (this.config && isFunction(this.config.onDesctruction)) {
+      this.config.onDesctruction.call(this);
+    }
+    this.step = null;
+    if (this.notifyListener) {
+      this.notifyListener.destroy();
+    }
+    this.notifyListener = null;
+    this.config = null;    
+    JobBase.prototype.destroy.call(this);
+  };
+  SteppedJob.prototype.go = function () {
+    var ok = this.okToGo();
+    if (!ok.ok) {
+      return ok.val;
+    }
+    this.runStep(null);
+    return ok.val;
+  };
+  SteppedJob.prototype.peekToProceed = function () {
+    var ret = JobBase.prototype.peekToProceed.call(this), check;
+    if (!(ret && ret.ok)) {
+      return ret;
+    }
+    if (!this.config) {
+      return {
+        ok: false,
+        val: new Error('No config was specified for '+this.constructor.name)
+      };
+    }
+    if (!isArray(this.config.steps)) {
+      return {
+        ok: false,
+        val: new Error('No config steps were specified for '+this.constructor.name)
+      };
+    }
+    if (isFunction(this.config.shouldContinue)) {
+      check = this.config.shouldContinue.call(this);
+      if (check) {
+        return {
+          ok: false,
+          val: check
+        };
+      }
+    }
+    return ret;
+  };
+  SteppedJob.prototype.runStep = function (lastresult) {
+    var func, funcres;
+    if (!this.okToProceed()) {
+      return;
+    }
+    this.step++;
+    if (this.step >= this.config.steps.length) {
+      this.resolve(lastresult);
+      return;
+    }
+    func = this.config.steps[this.step];
+    if (!isFunction(func)) {
+      this.reject(new Error('Step #'+this.step+' in config.steps was not a function'));
+      return;
+    }
+    try {
+      funcres = func.call(this, lastresult);
+      if (q.isThenable(funcres)) {
+        funcres.then(
+          this.runStep.bind(this),
+          this.reject.bind(this),
+          this.notify.bind(this)
+        );
+        return;
+      }
+      this.runStep(funcres);
+    } catch (e) {
+      this.reject(e);
+    }
+  };
+
+  mylib.Stepped = SteppedJob;
+
+  function SteppedJobOnInstance (instance, methodnamesteps, defer) {
+    SteppedJob.call(this, {
+      notify: instance.notify,
+      shouldContinue: isFunction(instance.shouldContinue) ? instance.shouldContinue.bind(instance) : null,
+      onDesctruction: isFunction(instance.destroy) ? instance.destroy.bind(instance) : null,
+      steps: methodnamesteps.map(function(stepmethodname) {
+        if (!isFunction(instance[stepmethodname])) {
+          throw new Error(stepmethodname+' is not a method of '+instance.constructor.name);
+        }
+        return instance[stepmethodname].bind(instance);
+      })
+    }, defer);
+  }
+  inherit(SteppedJobOnInstance, SteppedJob);
+  mylib.SteppedJobOnInstance = SteppedJobOnInstance;
+
+  function SteppedJobOnSteppedInstance (instance, defer) {
+    SteppedJobOnInstance.call(this, instance, instance.steps, defer);
+  }
+  inherit(SteppedJobOnSteppedInstance, SteppedJobOnInstance);
+  mylib.SteppedJobOnSteppedInstance = SteppedJobOnSteppedInstance;
+
+  function newSteppedJobOnInstance (instance, methodnamesteps, defer) {
+    return new SteppedJobOnInstance(instance, methodnamesteps, defer);
+  }
+
+  function newSteppedJobOnSteppedInstance (instance, defer) {
+    return new SteppedJobOnSteppedInstance(instance, defer);
+  }
+  mylib.newSteppedJobOnInstance = newSteppedJobOnInstance;
+  mylib.newSteppedJobOnSteppedInstance = newSteppedJobOnSteppedInstance;
+}
+module.exports = createSteppedJob;
+
+},{}],83:[function(require,module,exports){
 function createDeferred(runNext, promises) {
   'use strict';
   function Deferred() {
@@ -6084,7 +7254,7 @@ function createDeferred(runNext, promises) {
 
 module.exports = createDeferred;
 
-},{}],71:[function(require,module,exports){
+},{}],84:[function(require,module,exports){
 function createQ(runNext, isArray, isFunction, inherit, dummyFunc, _EventEmitter) {
   'use strict';
   var promises = require('./promisecreator')(runNext, isArray, isFunction, inherit, dummyFunc, _EventEmitter),
@@ -6224,7 +7394,7 @@ function createQ(runNext, isArray, isFunction, inherit, dummyFunc, _EventEmitter
 
 module.exports = createQ;
 
-},{"./deferredcreator":70,"./promisecreator":72}],72:[function(require,module,exports){
+},{"./deferredcreator":83,"./promisecreator":85}],85:[function(require,module,exports){
 (function (process){(function (){
 function createPromises(runNext, isArray, isFunction, inherit, dummyFunc, _EventEmitter) {
   'use strict'
@@ -6763,11 +7933,716 @@ function createPromises(runNext, isArray, isFunction, inherit, dummyFunc, _Event
 module.exports = createPromises;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],73:[function(require,module,exports){
+},{"_process":355}],86:[function(require,module,exports){
+(function (process){(function (){
+function createRegistryBase(execlib){
+  'use strict';
+  var lib = execlib.lib,
+    q = lib.q,
+    qlib = lib.qlib,
+    myrequire = require('./myrequirecreator')(execlib);
+  function RegistryBase(){
+    lib.DIContainer.call(this);
+  }
+  lib.inherit(RegistryBase,lib.DIContainer);
+  RegistryBase.prototype.register = function (modulename, mod) {
+    if (typeof mod !== 'undefined') {
+      if (this.get(modulename)) {
+        console.error(process.pid, 'duplicate register for', modulename);
+        return q.reject(new lib.Error('DUPLICATE_MODULE_REGISTER_ATTEMPT', 'Duplicate register for '+modulename+' is not allowed'));
+      }
+      lib.DIContainer.prototype.register.call(this, modulename, mod);
+      return mod;
+    }
+    if (!this.busy(modulename)) {
+      this.waitFor(modulename);
+      return this.finalizeRegister(modulename);
+    }
+    return this.waitFor(modulename);
+  };
+  RegistryBase.prototype.finalizeRegister = function (modulename) {
+    var d, ret;
+    try {
+      return q(this.register(modulename, myrequire(modulename)(execlib)));
+    }
+    catch(e){
+      if(execlib.execSuite.installFromError){
+        d = q.defer();
+        ret = d.promise;
+        execlib.execSuite.installFromError(this.registerAfterInstall.bind(this,modulename,d),e);
+        return ret;
+      }else{
+        console.log(e.stack);
+        console.log(e);
+        return q.reject(e);
+      }
+    }
+  };
+  RegistryBase.prototype.registerAfterInstall = function (modulename, defer, should) {
+    var e, frres;
+    if (!should) {
+      e = new lib.Error('MODULE_INSTALLATION_FAILED',modulename);
+      e.modulename = modulename;
+      if (defer) {
+        defer.reject(e);
+      }
+      this.fail(e);
+      return;
+    }
+    frres = this.finalizeRegister(modulename);
+    if (defer) {
+      qlib.promise2defer(frres, defer);
+    }
+  };
+  RegistryBase.prototype.spawn = function (modulename, prophash) {
+    var d = q.defer();
+    this.register(modulename).done(
+      function(ctor){
+        d.resolve(new ctor(prophash||{}));
+        d = null;
+        prophash = null;
+      },
+      d.reject.bind(d)
+    );
+    return d.promise;
+  };
+  RegistryBase.prototype.onInstallFromError = function (modulename,defer,error,ok) {
+    if(ok){
+      qlib.promise2defer(this.register(modulename), defer);
+    }else{
+      defer.reject(error);
+    }
+  };
+  return RegistryBase;
+}
+
+module.exports = createRegistryBase;
+
+
+}).call(this)}).call(this,require('_process'))
+},{"./myrequirecreator":87,"_process":355}],87:[function(require,module,exports){
+/*
+ * This module overcomes the NodeJS's bug with require
+ * The bug is:
+ * 1. require a module that doesn't exist
+ * 2. require fails
+ * 3. obtain a module that didn't exist
+ * 4. require will fail if "main" of the obtained module's package.json is not "index.js"
+ */
+var Path = require('path'),
+  fs = require('fs');
+function createMyRequire (execlib) {
+  'use strict';
+
+  function mytryer (name, result, path) {
+    var pj;
+    if (result) {
+      return result;
+    }
+    try {
+      pj = JSON.parse(fs.readFileSync(Path.join(path, name, 'package.json')));
+      if (pj && pj.main) {
+        return require(Path.join(path, name, pj.main));
+      }
+      return result;
+    } catch (e) {
+      return result;
+    }
+  }
+  function myrequire (name) {
+    var ret ;
+    try {
+      return require(name);
+    } catch (e) {
+      ret = require.resolve.paths(name).reduce(mytryer.bind(null, name), null);
+      if (ret !== null) {
+        return ret;
+      }
+      throw e;
+    }
+  }
+
+  return myrequire;
+}
+module.exports = createMyRequire;
+
+},{"fs":249,"path":348}],88:[function(require,module,exports){
+function createServicePackSuite(execlib,clientFactory){
+  'use strict';
+  var servicePackSuite = {
+    NotAllexModuleError: require('./notallexmoduleerrorcreator')(execlib),
+    UserSpawner: require('./userspawnercreator')(execlib,clientFactory)
+  };
+  require('./registrycreator')(execlib,servicePackSuite);
+}
+
+module.exports = createServicePackSuite;
+
+},{"./notallexmoduleerrorcreator":90,"./registrycreator":91,"./userspawnercreator":92}],89:[function(require,module,exports){
+(function (process){(function (){
+function createModuleRegistry(execlib,servicePackSuite){
+  'use strict';
+  var lib = execlib.lib,
+    q = lib.q,
+    execSuite = execlib.execSuite,
+    RegistryBase = execSuite.RegistryBase,
+    NotAllexModuleError = servicePackSuite.NotAllexModuleError;
+
+  function isAServicePackSide (side) {
+    if (!lib.isFunction(side)) {
+      return (side && lib.isFunction(side.cb) && lib.isArray(side.dependencies));
+    }
+    return true;
+  }
+  function isAServicePack(servicepack) {
+    if (!servicepack) {
+      return false;
+    }
+    return isAServicePackSide(servicepack.serverside) && isAServicePackSide(servicepack.clientside);
+  }
+
+  function ModuleRegistry(){
+    RegistryBase.call(this);
+    this.onSuperSink = new lib.HookCollection();
+  }
+  lib.inherit(ModuleRegistry,RegistryBase);
+  ModuleRegistry.prototype.destroy = function(){
+    if(!this.onSuperSink){
+      return;
+    }
+    this.onSuperSink.destruct();
+    this.onSuperSink = null;
+    RegistryBase.prototype.destroy.call(this);
+  };
+  ModuleRegistry.prototype.processNewServicePack = function (modulename, servicepack) {
+    if (!isAServicePack(servicepack)) {
+      console.trace();
+      console.log('what is', servicepack, '?');
+      throw new NotAllexModuleError(modulename);
+    }
+  };
+  ModuleRegistry.prototype.weWillSeeAboutThis = function (modulename, servicepack) {
+    var Service = servicepack.Service,
+      SinkMap = servicepack.SinkMap,
+      browserifymode = 'undefined' !== typeof window,
+      ServiceSink;
+
+    if (!SinkMap) {
+      if (!(servicepack instanceof lib.Fifo)) {
+        console.trace();
+        console.log('what is', servicepack, '?');
+        throw new NotAllexModuleError(modulename);
+      }
+      return;
+    }
+    if('function' !== typeof Service && !browserifymode){
+      throw new NotAllexModuleError(modulename);
+    }
+    SinkMap.traverse(function(sinkctor,role){
+      sinkctor.prototype.role = role;
+      sinkctor.prototype.modulename = modulename;
+    });
+    if(!browserifymode){
+      //provide the neccessary bridge between ServiceSink for the 'service' role
+      //and the Service's userFactory
+      ServiceSink = SinkMap.get('service');
+      if(ServiceSink){
+        ServiceSink.prototype.findUserCtor = function(role){
+          return Service.prototype.userFactory.get(role);
+        };
+      }
+      Service.prototype.modulename = modulename;
+      Service.prototype.userFactory.traverse(function(userctor){
+        userctor.prototype.modulename = modulename;
+      });
+    }else{
+      if (servicepack.Service) {
+        servicepack.Service = null;
+      }
+    }
+    if(lib.isArray(servicepack.Tasks)){
+      servicepack.Tasks.forEach(taskRegistry.registerClass.bind(taskRegistry));
+    }
+  };
+  ModuleRegistry.prototype.add = function(modulename,servicepack){
+    if (!lib.isString(modulename)) {
+      console.trace();
+      console.error(modulename, 'not a string');
+      process.exit(0);
+      return;
+    }
+    try {
+    this.processNewServicePack(modulename, servicepack);
+    return RegistryBase.prototype.add.call(this,modulename,servicepack);
+    } catch (e) {
+      console.error(e.stack);
+      console.error(e);
+    }
+  };
+  ModuleRegistry.prototype.replace = function (modulename, servicepack) {
+    try {
+    this.processNewServicePack(modulename, servicepack);
+    return RegistryBase.prototype.replace.call(this, modulename, servicepack);
+    } catch (e) {
+      console.error(e.stack);
+      console.error(e);
+    }
+  };
+  ModuleRegistry.prototype.resolve = function(servicepackname,role,client,prophash,defer){
+    var sp = this.get(servicepackname);
+    if(!sp || sp instanceof lib.Fifo){
+      if(servicepackname){
+        this.register(servicepackname).done(
+          this.resolve.bind(this, servicepackname, role, client, prophash, defer),
+          defer.reject.bind(defer)
+        );
+        servicepackname = null;
+        role = null;
+        client = null;
+        prophash = null;
+        defer = null;
+        return;
+      }
+    }
+    if (!sp.SinkMap) {
+      console.log('what is sp?', sp);
+      role = null;
+      client = null;
+      prophash = null;
+      defer = null;
+      throw new NotAllexModuleError(servicepackname);
+    }
+    if(role==='superuser'){
+      role='service';
+    }
+    if(!role){
+      defer.reject('No role');
+      servicepackname = null;
+      role = null;
+      client = null;
+      prophash = null;
+      defer = null;
+      return;
+    }
+    var f = sp.SinkMap.get(role);
+    if(!f){
+      console.trace();
+      defer.reject('No factory function for role '+role);
+      servicepackname = null;
+      role = null;
+      client = null;
+      prophash = null;
+      defer = null;
+      return;
+    }
+    //prophash.modulename = servicepackname;
+    defer.resolve(new f(prophash,client));
+    servicepackname = null;
+    role = null;
+    client = null;
+    prophash = null;
+    defer = null;
+  };
+
+  return ModuleRegistry;
+}
+
+module.exports = createModuleRegistry;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],90:[function(require,module,exports){
+function createNotAllexModuleError(execlib){
+  'use strict';
+  var lib = execlib.lib,
+      AllexError = lib.Error;
+  function NotAllexModuleError(modulename){
+    var ret = new AllexError('MODULE_NOT_AN_ALLEX_SERVICE_PACK','Module named '+modulename+' does not export the service and sinkmap functions');
+    ret.modulename = modulename;
+    return ret;
+  }
+  lib.inherit(NotAllexModuleError,AllexError);
+  return NotAllexModuleError;
+}
+
+module.exports = createNotAllexModuleError;
+
+},{}],91:[function(require,module,exports){
+(function (process){(function (){
+var Path = require('path');
+function createServicePackRegistry(execlib,servicePackSuite) {
+  'use strict';
+  var lib = execlib.lib,
+    q = lib.q,
+    UserSpawner = servicePackSuite.UserSpawner,
+    execSuite = execlib.execSuite,
+    ModuleRegistry = require('./moduleregistrycreator')(execlib,servicePackSuite),
+    taskRegistry = execSuite.taskRegistry,
+    NotAllexModuleError = servicePackSuite.NotAllexModuleError;
+
+  if(execSuite.registry){
+    return;
+  }
+
+  function isAServicePackSide (side) {
+    if (!lib.isFunction(side)) {
+      return (side && lib.isArray(side.dependencies));
+    }
+    return true;
+  }
+  function isAServicePack(servicepack, modulename) {
+    if (!servicepack) {
+      return false;
+    }
+    if (isAServicePackSide(servicepack.service) && isAServicePackSide(servicepack.sinkmap)) {
+      if (!servicepack.dirname) {
+        servicepack.dirname = Path.dirname(require.resolve(modulename));
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function ServicePackRegistry () {
+    this.moduleRegistry = new execSuite.RegistryBase();
+    this.superSinks = new lib.Map();
+    this.clientSides = new lib.DIContainer();
+    this.serverSides = new lib.DIContainer();
+    this.onSuperSink = new lib.HookCollection();
+  }
+  ServicePackRegistry.prototype.destroy = function () {
+    if(!this.onSuperSink){
+      return;
+    }
+    this.onSuperSink.destroy();
+    if (this.serverSides) {
+      this.serverSides.destroy();
+    }
+    this.serverSides = null;
+    if (this.clientSides) {
+      this.clientSides.destroy();
+    }
+    this.clientSides = null;
+    this.onSuperSink = null;
+    if (this.superSinks) {
+      lib.containerDestroyAll(this.superSinks);
+      this.superSinks.destroy();
+    }
+    this.superSinks = null;
+  };
+  ServicePackRegistry.prototype.spawn = function(prophash,connectstring,credentials,session){
+    var us = new UserSpawner(this,prophash,connectstring,credentials,session);
+    return us.defer.promise;
+  };
+  ServicePackRegistry.prototype.maybeDoTasks = function (modulename, servicepack) {
+    if (!servicepack.tasks) {
+      return q(true);
+    }
+    if (!taskRegistry.moduleDone(modulename)) {
+      return this.doDaSide('tasks', servicepack).then(
+        this.onTasksDone.bind(this, modulename)
+      );
+    }
+    return q(taskRegistry.modulesDone.waitFor(modulename));
+  };
+  ServicePackRegistry.prototype.getClientSide = function (modulename) {
+    return this.clientSides.get(modulename);
+  };
+  ServicePackRegistry.prototype.registerClientSide = function (modulename, mod) {
+    var m;
+    if (mod) {
+      return this.clientSides.register(modulename, mod);
+    }
+    m = this.clientSides.get(modulename);
+    if (m) {
+      return q(m);
+    } else {
+      if ('undefined' !== typeof window) {
+        console.error(modulename, 'is not registered');
+      }
+    }
+    return this.moduleRegistry.register(modulename).then(
+      this.onRegisterForClientSide.bind(this, modulename)
+    );
+  };
+  ServicePackRegistry.prototype.onRegisterForClientSide = function (modulename, servicepack) {
+    var cs = this.getClientSide(modulename);
+    if (!cs) {
+      if (!isAServicePack(servicepack, modulename)) {
+        throw NotAllexModuleError(modulename);
+      }
+      return this.maybeDoTasks(modulename, servicepack).then(
+        this.onTasksForClientSide.bind(this, modulename, servicepack)
+      );
+    }
+    return q(cs);
+  };
+  ServicePackRegistry.prototype.onTasksForClientSide = function (modulename, servicepack) {
+    if (!this.clientSides.busy(modulename)) {
+      this.clientSides.waitFor(modulename);
+      return this.doDaSide('client', servicepack).then(
+        this.onClientSideDone.bind(this, modulename)
+      );
+    }
+    return this.clientSides.waitFor(modulename);
+  };
+  ServicePackRegistry.prototype.onClientSideDone = function (modulename, sinkmap) {
+    if (this.getClientSide(modulename)) {
+      return;
+    }
+    sinkmap.traverse(function(sinkctor,role){
+      sinkctor.prototype.role = role;
+      sinkctor.prototype.modulename = modulename;
+    });
+    this.clientSides.register(modulename, sinkmap);
+    modulename = null;
+    return q(sinkmap);
+  };
+  ServicePackRegistry.prototype.onTasksDone = function (modulename, tasks) {
+    taskRegistry.register(modulename, tasks);
+  };
+  ServicePackRegistry.prototype.registerServerSide = function (modulename) {
+    return this.moduleRegistry.register(modulename).then(
+      this.onRegisterForServerSide.bind(this, modulename)
+    );
+  };
+  ServicePackRegistry.prototype.onRegisterForServerSide = function (modulename, servicepack) {
+    var ss = this.serverSides.get(modulename);
+    if (!ss) {
+      if (!isAServicePack(servicepack, modulename)) {
+        throw NotAllexModuleError(modulename);
+      }
+      return this.maybeDoTasks(modulename, servicepack).then(
+        this.onTasksForServerSide.bind(this, modulename, servicepack)
+      );
+    }
+    return q(ss);
+  };
+  ServicePackRegistry.prototype.onTasksForServerSide = function (modulename, servicepack) {
+    if (!this.serverSides.busy(modulename)) {
+      this.serverSides.waitFor(modulename);
+      return this.doDaSide('server', servicepack).then(
+        this.onServerSideDone.bind(this, modulename)
+      );
+    }
+    return this.serverSides.waitFor(modulename);
+  };
+  ServicePackRegistry.prototype.onServerSideDone = function (modulename, service) {
+    var _ce = console.error.bind(console), _pe = process.exit.bind(process);
+    service.prototype.modulename = modulename;
+    service.prototype.userFactory.traverse(function(userctor){
+      if (!userctor.inherit) {
+        _ce('no inherit', modulename, userctor.prototype.role);
+        _pe(0);
+      }
+      userctor.prototype.modulename = modulename;
+    });
+    _pe = null;
+    _ce = null;
+    this.serverSides.register(modulename, service);
+    modulename = null;
+    return q(service);
+  };
+  ServicePackRegistry.prototype.add = function(modulename,servicepack){
+    return this.moduleRegistry.register(modulename, servicepack);
+  };
+  ServicePackRegistry.prototype.getServerSide = function(modulename) {
+    return this.serverSides.get(modulename);
+  };
+  ServicePackRegistry.prototype.getModule = function (modulename) {
+    return this.moduleRegistry.get(modulename);
+  };
+  function onLoadDependencies (cb, defer) {
+    var args = Array.prototype.slice.call(arguments, 2);
+    args.unshift(execlib);
+    if (lib.isString(cb)) {
+      try {
+        cb = require(cb);
+      } catch(e) {
+        console.error('Error in', cb);
+        console.error(e);
+        defer.reject(e);
+        cb = null;
+        defer = null;
+        return;
+      }
+    }
+    var ret = cb.apply(null, args);
+    cb = null;
+    defer.resolve(ret);
+    defer = null;
+  }
+  ServicePackRegistry.prototype.doDaSide = function (sidename, servicepack) {
+    var side, sidemodulename, d, cb;
+    switch(sidename) {
+      case 'server':
+        side = servicepack.service;
+        sidemodulename = 'servicecreator';
+        break;
+      case 'client':
+        side = servicepack.sinkmap;
+        sidemodulename = 'sinkmapcreator';
+        break;
+      case 'tasks':
+        side = servicepack.tasks;
+        sidemodulename = 'taskcreator';
+        break;
+    }
+    if (!side) {
+      throw new lib.JSONizingError('NO_SERVICEPACK_SIDE', servicepack, 'Missing '+sidename+':');
+    }
+    if (lib.isFunction(side)) {
+      return q(side(execlib));
+    }
+    cb = side.cb;
+    if (!cb) {
+      cb = Path.join(servicepack.dirname, sidemodulename);
+    }
+    d = q.defer();
+    execlib.loadDependencies(sidename, side.dependencies, onLoadDependencies.bind(null, cb, d));
+    return d.promise;
+  };
+  ServicePackRegistry.prototype.resolve = function(servicepackname,role,client,prophash,defer){
+    this.registerClientSide(servicepackname).then(
+      this.onClientSideForResolve.bind(this, role, client, prophash, defer),
+      defer.reject.bind(defer)
+    );
+  };
+  ServicePackRegistry.prototype.onClientSideForResolve = function (role, client, prophash, defer, sinkmap) {
+    var f;
+    if(role==='superuser'){
+      role='service';
+    }
+    if(!role){
+      defer.reject('No role');
+      role = null;
+      client = null;
+      prophash = null;
+      defer = null;
+      return;
+    }
+    f = sinkmap.get(role);
+    if(!f){
+      console.trace();
+      defer.reject('No factory function for role '+role);
+      role = null;
+      client = null;
+      prophash = null;
+      defer = null;
+      return;
+    }
+    //prophash.modulename = servicepackname;
+    defer.resolve(new f(prophash,client));
+    role = null;
+    client = null;
+    prophash = null;
+    defer = null;
+  };
+  function SuperSinkSlot(registry,supersinkitem){
+    this.registry = registry;
+    this.name = supersinkitem.content.name;
+  }
+  SuperSinkSlot.prototype.destroy = function(){
+    console.log('removing',this.name);
+    this.registry.onSuperSink.fire(this.name,null);
+    this.registry.superSinks.remove(this.name);
+    this.name = null;
+    this.registry = null;
+  };
+  ServicePackRegistry.prototype.registerSuperSink = function(serviceinstancename,supersink){
+    console.log(process.pid+'','registering supersink',serviceinstancename,'('+supersink.modulename+':'+supersink.role+')');
+    supersink.extendTo(new SuperSinkSlot(this,this.superSinks.add(serviceinstancename,supersink)));
+    this.onSuperSink.fire(serviceinstancename,supersink);
+  };
+  ServicePackRegistry.prototype.getSuperSink = function(supersinkname){
+    return this.superSinks.get(supersinkname);
+  };
+
+  execSuite.registry = new ServicePackRegistry;
+}
+
+module.exports = createServicePackRegistry;
+
+}).call(this)}).call(this,require('_process'))
+},{"./moduleregistrycreator":89,"_process":355,"path":348}],92:[function(require,module,exports){
+(function (process){(function (){
+function createUserSpawner(execlib,clientFactory){
+  'use strict';
+  var lib = execlib.lib,
+      q = lib.q;
+  function UserSpawner(factory,prophash,connectstring,credentials,session){
+    this.defer = q.defer();
+    this.factory = factory;
+    this.prophash = prophash;
+    this.authListener = null;
+    this.destroyedListener = null;
+    if(connectstring){
+      var c;
+      try{
+        c = clientFactory(connectstring,credentials,session);
+      }
+      catch(e){
+        console.error(e.stack);
+        console.error(e);
+        this.onAuthenticated(e,null,null);
+        return;
+      }
+      if(c){
+        this.authListener = c.authenticated.attach(this.onAuthenticated.bind(this));
+        this.destroyedListener = c.destroyed.attach(this.onClientDestroyed.bind(this));
+      }else{
+        this.onClientDestroyed(new lib.UnconnectableError(connectstring),null,null);
+      }
+    }else{
+      this.onClientDestroyed(new lib.UnconnectableError(connectstring),null,null);
+    }
+  }
+  UserSpawner.prototype.destroy = function(){
+    if(this.destroyedListener){
+      this.destroyedListener.destroy();
+    }
+    this.destroyedListener = null;
+    if(this.authListener){
+      this.authListener.destroy();
+    }
+    this.authListener = null;
+    this.prophash = null;
+    this.factory = null;
+    this.defer = null;
+  };
+  UserSpawner.prototype.onAuthenticated = function(client,servicepackname,role){
+    if(!this.defer){
+      return;
+    }
+    if (!servicepackname) {
+      console.trace();
+      if (process && lib.isFunction(process.exit)) {
+        process.exit(0);
+      }
+      return;
+    }
+    this.factory.resolve(servicepackname,role,client,this.prophash,this.defer);
+    lib.runNext(this.destroy.bind(this));
+  };
+  UserSpawner.prototype.onClientDestroyed = function(exception){
+    if(!this.factory){//dead since onAuthenticated
+      return;
+    }
+    if(exception){
+      this.defer.reject(exception);
+    }
+    lib.runNext(this.destroy.bind(this));
+  };
+  return UserSpawner;
+}
+
+module.exports = createUserSpawner;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],93:[function(require,module,exports){
 module.exports = {
 };
 
-},{}],74:[function(require,module,exports){
+},{}],94:[function(require,module,exports){
 module.exports = {
   resolve: [{
     title: 'Credentials',
@@ -6775,7 +8650,7 @@ module.exports = {
   }]
 };
 
-},{}],75:[function(require,module,exports){
+},{}],95:[function(require,module,exports){
 function sinkMapCreator(execlib,ParentSinkMap){
   'use strict';
   var sinkmap = new (execlib.lib.Map);
@@ -6787,7 +8662,7 @@ function sinkMapCreator(execlib,ParentSinkMap){
 
 module.exports = sinkMapCreator;
 
-},{"./sinks/servicesinkcreator":76,"./sinks/usersinkcreator":77}],76:[function(require,module,exports){
+},{"./sinks/servicesinkcreator":96,"./sinks/usersinkcreator":97}],96:[function(require,module,exports){
 function createServiceSink(execlib,ParentSink){
   'use strict';
 
@@ -6805,7 +8680,7 @@ function createServiceSink(execlib,ParentSink){
 
 module.exports = createServiceSink;
 
-},{"../methoddescriptors/serviceuser":73}],77:[function(require,module,exports){
+},{"../methoddescriptors/serviceuser":93}],97:[function(require,module,exports){
 function createUserSink(execlib,ParentSink){
   'use strict';
 
@@ -6823,7 +8698,7 @@ function createUserSink(execlib,ParentSink){
 
 module.exports = createUserSink;
 
-},{"../methoddescriptors/user":74}],78:[function(require,module,exports){
+},{"../methoddescriptors/user":94}],98:[function(require,module,exports){
 module.exports = {
   introduceSession: [{
     title: 'sessionid',
@@ -6834,7 +8709,7 @@ module.exports = {
   }]
 };
 
-},{}],79:[function(require,module,exports){
+},{}],99:[function(require,module,exports){
 module.exports = {
   requestTcpTransmission:[{
     title: 'Options object',
@@ -6842,7 +8717,7 @@ module.exports = {
   }]
 };
 
-},{}],80:[function(require,module,exports){
+},{}],100:[function(require,module,exports){
 function sinkMapCreator(ServiceSink,execlib){
   'use strict';
   var sinkmap = new (execlib.lib.Map);
@@ -6855,7 +8730,7 @@ function sinkMapCreator(ServiceSink,execlib){
 
 module.exports = sinkMapCreator;
 
-},{"./sinks/servicesinkcreator":81,"./sinks/usersinkcreator":82}],81:[function(require,module,exports){
+},{"./sinks/servicesinkcreator":101,"./sinks/usersinkcreator":102}],101:[function(require,module,exports){
 function createServiceSink(_ServiceSink,execlib){
   'use strict';
   var lib = execlib.lib,
@@ -6882,7 +8757,7 @@ function createServiceSink(_ServiceSink,execlib){
 
 module.exports = createServiceSink;
 
-},{"../methoddescriptors/serviceuser":78}],82:[function(require,module,exports){
+},{"../methoddescriptors/serviceuser":98}],102:[function(require,module,exports){
 function createUserSink(ServiceSink,execlib){
   'use strict';
   function UserSink(prophash,client){
@@ -6894,7 +8769,7 @@ function createUserSink(ServiceSink,execlib){
 
 module.exports = createUserSink;
 
-},{"../methoddescriptors/user":79}],83:[function(require,module,exports){
+},{"../methoddescriptors/user":99}],103:[function(require,module,exports){
 function createBehaviorMap(execlib){
   'use strict';
   var InvokerTask = require('./tasks/invokerTaskBase')(execlib);
@@ -6927,7 +8802,7 @@ function createBehaviorMap(execlib){
 
 module.exports = createBehaviorMap;
 
-},{"./tasks/acquireSink":84,"./tasks/acquireSubSinks":85,"./tasks/invokeMethod":86,"./tasks/invokeSessionMethod":87,"./tasks/invokerTaskBase":88,"./tasks/materializeState":89,"./tasks/readState":90,"./tasks/realizeTcpTransmission":91,"./tasks/transmitTcp":92}],84:[function(require,module,exports){
+},{"./tasks/acquireSink":104,"./tasks/acquireSubSinks":105,"./tasks/invokeMethod":106,"./tasks/invokeSessionMethod":107,"./tasks/invokerTaskBase":108,"./tasks/materializeState":109,"./tasks/readState":110,"./tasks/realizeTcpTransmission":111,"./tasks/transmitTcp":112}],104:[function(require,module,exports){
 function createAcquireSinkTask(execlib){
   'use strict';
   var lib = execlib.lib,
@@ -7069,7 +8944,7 @@ function createAcquireSinkTask(execlib){
 
 module.exports = createAcquireSinkTask;
 
-},{}],85:[function(require,module,exports){
+},{}],105:[function(require,module,exports){
 function createAcquireStaticSubSinksTask(execlib){
   'use strict';
   var lib = execlib.lib,
@@ -7120,7 +8995,7 @@ function createAcquireStaticSubSinksTask(execlib){
 
 module.exports = createAcquireStaticSubSinksTask;
 
-},{}],86:[function(require,module,exports){
+},{}],106:[function(require,module,exports){
 function createInvokeMethodTask(execlib,InvokerTask){
   'use strict';
   var lib = execlib.lib,
@@ -7135,7 +9010,7 @@ function createInvokeMethodTask(execlib,InvokerTask){
 
 module.exports = createInvokeMethodTask;
 
-},{}],87:[function(require,module,exports){
+},{}],107:[function(require,module,exports){
 function createInvokeSessionMethodTask(execlib,InvokerTask){
   'use strict';
   var lib = execlib.lib,
@@ -7150,7 +9025,7 @@ function createInvokeSessionMethodTask(execlib,InvokerTask){
 
 module.exports = createInvokeSessionMethodTask;
 
-},{}],88:[function(require,module,exports){
+},{}],108:[function(require,module,exports){
 function createInvokerTask(execlib){
   'use strict';
   var lib = execlib.lib,
@@ -7197,7 +9072,7 @@ function createInvokerTask(execlib){
 
 module.exports = createInvokerTask;
 
-},{}],89:[function(require,module,exports){
+},{}],109:[function(require,module,exports){
 (function (process){(function (){
 function createMaterializeStateTask(execlib){
   'use strict';
@@ -7251,7 +9126,7 @@ function createMaterializeStateTask(execlib){
 module.exports = createMaterializeStateTask;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],90:[function(require,module,exports){
+},{"_process":355}],110:[function(require,module,exports){
 function createReadStateTask(execlib){
   'use strict';
   var lib = execlib.lib,
@@ -7282,7 +9157,7 @@ function createReadStateTask(execlib){
 
 module.exports = createReadStateTask;
 
-},{}],91:[function(require,module,exports){
+},{}],111:[function(require,module,exports){
 var net = require('net');
 
 function createRealizeTcpTransmissionTask(execlib){
@@ -7387,7 +9262,7 @@ function createRealizeTcpTransmissionTask(execlib){
 module.exports = createRealizeTcpTransmissionTask;
 
 
-},{"net":238}],92:[function(require,module,exports){
+},{"net":249}],112:[function(require,module,exports){
 function createTransmitTcpTask(execlib){
   'use strict';
   var lib = execlib.lib,
@@ -7448,7 +9323,7 @@ function createTransmitTcpTask(execlib){
 
 module.exports = createTransmitTcpTask;
 
-},{}],93:[function(require,module,exports){
+},{}],113:[function(require,module,exports){
 (function (process){(function (){
 function createClientUser(lib, Callable, StreamSource){
   'use strict';
@@ -7635,7 +9510,7 @@ function createClientUser(lib, Callable, StreamSource){
 module.exports = createClientUser;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],94:[function(require,module,exports){
+},{"_process":355}],114:[function(require,module,exports){
 function createServiceSink(execlib){
   'use strict';
   var lib = execlib.lib,
@@ -7793,7 +9668,7 @@ function createServiceSink(execlib){
 
 module.exports = createServiceSink;
 
-},{"./clientusercreator":93}],95:[function(require,module,exports){
+},{"./clientusercreator":113}],115:[function(require,module,exports){
 (function (process){(function (){
 'use strict';
 
@@ -7865,7 +9740,7 @@ Iterator.prototype.run = function () {
 module.exports = Iterator;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],96:[function(require,module,exports){
+},{"_process":355}],116:[function(require,module,exports){
 'use strict';
 var Iterator = require('./Iterator');
 function ListItem(content){
@@ -8075,17 +9950,1195 @@ List.prototype.drain = function(){
 
 module.exports = List;
 
-},{"./Iterator":95}],97:[function(require,module,exports){
+},{"./Iterator":115}],117:[function(require,module,exports){
+function createADS(lib,StreamDecoder
+/*all ctors after this are for the helper function(s) listenToScalar(s),listenToCollection(s)*/
+  ,StreamSource,StreamPathListener,StreamCollectionListener,StreamScalarListener){
+  'use strict';
+  function ADS(listenerpack){
+    StreamDecoder.call(this);
+    this.ctx = listenerpack.ctx || this;
+    if(listenerpack.activator){
+      this.a = listenerpack.activator;
+    }
+    if(listenerpack.setter){
+      this.s = listenerpack.setter;
+    }
+    if(listenerpack.deactivator){
+      this.d = listenerpack.deactivator;
+    }
+    if(listenerpack.rawsetter){
+      this.r = listenerpack.rawsetter;
+    }
+  }
+  lib.inherit(ADS,StreamDecoder);
+  ADS.prototype.destroy = function(){
+    if(this.a){
+      this.a = null;
+    }
+    if(this.s){
+      this.s = null;
+    }
+    if(this.r){
+      this.r = null;
+    }
+    if(this.d){
+      this.d = null;
+    }
+  };
+  ADS.prototype.onStreamCollectionCreated = function(path){
+    if(this.a){
+      this.a.call(this.ctx,path);
+    }
+  };
+  ADS.prototype.onStreamScalarCreated = function(path,value){
+    if(this.a){
+      this.a.call(this.ctx,path);
+    }
+    if(this.s){
+      this.s.call(this.ctx,path,value,void 0);
+    }
+    if(this.r){
+      this.r.call(this.ctx,value,void 0);
+    }
+  };
+  ADS.prototype.onStreamScalarUpdated = function(path,value,oldvalue){
+    if(this.s){
+      this.s.call(this.ctx,path,value,oldvalue);
+    }
+    if(this.r){
+      this.r.call(this.ctx,value,oldvalue);
+    }
+  };
+  ADS.prototype.onStreamCollectionRemoved = function(path){
+    if(this.d){
+      this.d.call(this.ctx,path);
+    }
+  };
+  ADS.prototype.onStreamScalarRemoved = function(path,lastvalue){
+    if(this.s){
+      this.s.call(this.ctx,path,void 0,lastvalue);
+    }
+    if(this.r){
+      this.r.call(this.ctx,void 0,lastvalue);
+    }
+    if(this.d){
+      this.d.call(this.ctx,path);
+    }
+  };
+  function compose(listenerctor,path,listenerpack){
+    var l = new listenerctor(path,true);
+    if(!listenerpack.ctx){
+      listenerpack.ctx = l;
+    }
+    return StreamSource.chain([
+      l,
+      new ADS(listenerpack)
+    ]);
+  }
+  ADS.listenToScalar = function(path,listenerpack){
+    return compose(StreamScalarListener,path,listenerpack);
+  };
+  ADS.listenToCollection = function(path,listenerpack){
+    return compose(StreamCollectionListener,path,listenerpack);
+  };
+  return ADS;
+}
+
+module.exports = createADS;
+
+},{}],118:[function(require,module,exports){
+function createStateCoder(lib){
+  'use strict';
+  function StateCoder(){
+  }
+  StateCoder.prototype.destroy = lib.dummyFunc;
+  StateCoder.prototype.newCollection = function(path){
+    return {
+      p:path.slice(),
+      o:'c'
+    };
+  };
+  StateCoder.prototype.newScalar = function(path,value){
+    return {
+      p:path.slice(),
+      o:'s',
+      d:value
+    };
+  };
+  StateCoder.prototype.updateScalar = function(path,value,oldvalue){
+    return {
+      p: path.slice(),
+      o:'u',
+      d:[value,oldvalue]
+    };
+  };
+  StateCoder.prototype.removeCollection = function(path){
+    return {
+      p: path.slice(),
+      o:'cr'
+    };
+  };
+  StateCoder.prototype.removeScalar = function(path,lastvalue){
+    return {
+      p: path.slice(),
+      o:'sr',
+      d:lastvalue
+    };
+  };
+  return StateCoder;
+}
+
+module.exports = createStateCoder;
+
+},{}],119:[function(require,module,exports){
+function createCollection(lib,StreamBuffer){
+  'use strict';
+  function Collection(){
+    StreamBuffer.call(this);
+  }
+  lib.inherit(Collection,StreamBuffer);
+  Collection.prototype.createContainer = function(){
+    return new lib.ListenableMap();
+  };
+  Collection.prototype.nodeCtor = function(){
+    return Collection;
+  };
+  return Collection;
+}
+
+module.exports = createCollection;
+
+},{}],120:[function(require,module,exports){
+function createCollectionListener(lib,StreamPathListener){
+  'use strict';
+  function CollectionListener(pathmask, destroysinktoo){
+    StreamPathListener.call(this, pathmask, destroysinktoo);
+  }
+  lib.inherit(CollectionListener,StreamPathListener);
+  CollectionListener.prototype.onItem = function(item){
+    console.trace();
+    var o = item.o;
+    if(o[0] === 'c'){
+      this.handleStreamItem(item);
+    }
+  };
+  return CollectionListener;
+}
+
+module.exports = createCollectionListener;
+
+},{}],121:[function(require,module,exports){
+function createStateLib (lib) {
+  'use strict';
+
+  var streamlib = require('allex_streamclientcorelib')(lib),
+      StateCoder = require('./codercreator')(lib),
+      StateSource = streamlib.streamSourceCreator(StateCoder),
+      State2Array = require('./stream2arraysinkcreator')(lib,streamlib.StreamSink),
+      State2Defer = require('./stream2defersinkcreator')(lib,streamlib.StreamSink),
+      StateDecoder = require('./streamdecodercreator')(lib,streamlib.StreamSink),
+      State2Map = require('./stream2mapsinkcreator')(lib,StateDecoder),
+      StatePathModifier = require('./streampathmodifiercreator')(lib,StateSource),
+      StatePathListener = require('./streampathlistenercreator')(lib,StateSource,State2Map),
+      StateCollectionListener = require('./collectionlistenercreator')(lib,StatePathListener),
+      StateScalarListener = require('./scalarlistenercreator')(lib,StatePathListener),
+      StateSubServiceExtractor = require('./subserviceextractorcreator')(lib,StateSource),
+      ADS = require('./adscreator')(lib,StateDecoder,StateSource,StatePathListener,StateCollectionListener,StateScalarListener),
+      StateBuffer = require('./streambuffercreator')(lib,StateSource,StateDecoder,streamlib.StreamDistributor,StateCoder),
+      Collection = require('./collectioncreator')(lib,StateBuffer),
+      LimitedCollection = require('./limitedcollectioncreator')(lib,Collection);
+
+  return {
+    StateCoder: StateCoder,
+    StateSource: StateSource,
+    State2Array: State2Array,
+    State2Defer: State2Defer,
+    StateDecoder: StateDecoder,
+    State2Map: State2Map,
+    StatePathModifier: StatePathModifier,
+    StatePathListener: StatePathListener,
+    StateCollectionListener: StateCollectionListener,
+    StateScalarListener: StateScalarListener,
+    StateSubServiceExtractor: StateSubServiceExtractor,
+    ADS: ADS,
+    Collection: Collection,
+    LimitedCollection: LimitedCollection
+  };
+}
+
+module.exports = createStateLib;
+
+},{"./adscreator":117,"./codercreator":118,"./collectioncreator":119,"./collectionlistenercreator":120,"./limitedcollectioncreator":122,"./scalarlistenercreator":123,"./stream2arraysinkcreator":124,"./stream2defersinkcreator":125,"./stream2mapsinkcreator":126,"./streambuffercreator":127,"./streamdecodercreator":128,"./streampathlistenercreator":129,"./streampathmodifiercreator":130,"./subserviceextractorcreator":131,"allex_streamclientcorelib":134}],122:[function(require,module,exports){
+function createLimitedLiveData(lib,Collection){
+  'use strict';
+  function LimitedCollection(limit){
+    Collection.call(this);
+    this.limit = limit;
+  }
+  lib.inherit(LimitedCollection,Collection);
+  LimitedCollection.prototype.set = function(){
+    if(this.data.count>=this.limit){
+      return;
+    }
+    return Collection.prototype.set.apply(this,arguments);
+  };
+  return LimitedCollection;
+}
+
+module.exports = createLimitedLiveData;
+
+},{}],123:[function(require,module,exports){
+function createScalarListener(lib,StreamPathListener){
+  'use strict';
+  function ScalarListener(pathmask, destroysinktoo){
+    StreamPathListener.call(this, pathmask, destroysinktoo);
+  }
+  lib.inherit(ScalarListener,StreamPathListener);
+  ScalarListener.prototype.onItem = function(item){
+    var o = item.o;
+    if(o[0]!=='c'){
+      this.handleStreamItem(item);
+    }
+  };
+  return ScalarListener;
+}
+
+module.exports = createScalarListener;
+
+},{}],124:[function(require,module,exports){
+function createStream2Array(lib,StreamSink){
+  'use strict';
+  function Stream2Array(arry){
+    lib.Destroyable.call(this);
+    this.arry = arry || [];
+  }
+  lib.inherit(Stream2Array,lib.Destroyable);
+  Stream2Array.prototype.__cleanUp = function(){
+    this.arry = null;
+    lib.Destroyable.prototype.__cleanUp.call(this);
+  };
+  Stream2Array.prototype.onStream = function(item){
+    this.arry.push(item);
+  };
+  return Stream2Array;
+}
+
+module.exports = createStream2Array;
+
+},{}],125:[function(require,module,exports){
+function createStream2Defer(lib,StreamSink){
+  'use strict';
+  function Stream2Defer(defer){
+    lib.Destroyable.call(this);
+    this.defer = defer;
+  }
+  lib.inherit(Stream2Defer,lib.Destroyable);
+  Stream2Defer.prototype.__cleanUp = function(){
+    this.defer.resolve('end');
+    this.defer = null;
+    lib.Destroyable.prototype.__cleanUp.call(this);
+  };
+  Stream2Defer.prototype.onStream = function(item){
+    this.defer.notify(item);
+  };
+  return Stream2Defer;
+}
+
+module.exports = createStream2Defer;
+
+
+},{}],126:[function(require,module,exports){
+function createStream2Map(lib,StreamDecoder){
+  'use strict';
+
+  function isAddable (thingy) {
+    return thingy && (lib.isFunction(thingy.add) || lib.isFunction(thingy.set));
+  }
+
+  function addTo (addable, key, value) {
+    if (lib.isFunction(addable.add)) {
+      return addable.add(key, value);
+    }
+    if (lib.isFunction(addable.set)) {
+      return addable.set(key, value);
+    }
+    throw new lib.Error('NOT_ADDABLE', 'Cannot add');
+  }
+
+  function replaceOn (replaceable, key, value) {
+    if (lib.isFunction(replaceable.replace)) {
+      return replaceable.replace(key, value);
+    }
+    if (lib.isFunction(replaceable.set)) {
+      replaceable.set(key, null);
+      return replaceable.set(key, value);
+    }
+  }
+
+  function Stream2Map(map){
+    StreamDecoder.call(this);
+    this.mymap = null;
+    this.map = null;
+    if (map) {
+      this.map = map;
+      this.mymap = false;
+    } else {
+      this.map = new lib.Map();
+      this.map.purge();
+      this.mymap = true;
+    }
+  }
+  lib.inherit(Stream2Map,StreamDecoder);
+  Stream2Map.prototype.destroy = function(){
+    if (this.mymap) {
+      this.map.destroy();
+    }
+    this.map = null;
+    this.mymap = null;
+  };
+  function pathTraverser(finalizer,mapobj,item,itemindex,path){
+    if(!isAddable(mapobj.map)) {
+      throw lib.Error("map not a map at itemindex "+itemindex);
+    }
+    if(itemindex<path.length-1){
+      var c = mapobj.map.get(item);
+      if(!c){
+        c = new lib.Map();
+        addTo(mapobj.map, item, c);
+        //mapobj.map.add(item,c);
+      }
+      mapobj.map = c;
+    }else{
+      finalizer(mapobj,item);
+    }
+  }
+  function collectionCreator(mapobj,item){
+    addTo(mapobj.map, item, new lib.Map());
+    //mapobj.map.add(item,new lib.Map());
+  }
+  function scalarCreator(mapobj,item){
+    addTo(mapobj.map, item, mapobj.value);
+    //mapobj.map.add(item,mapobj.value);
+  }
+  function scalarUpdater(mapobj,item){
+    replaceOn(mapobj.map, item, mapobj.value);
+    //mapobj.map.replace(item,mapobj.value);
+  }
+  function elementDeleter(mapobj,item){
+    mapobj.map.remove(item);
+  };
+  Stream2Map.prototype.onStreamCollectionCreated = function(path){
+    path.forEach(pathTraverser.bind(null,collectionCreator,{map:this.map}));
+  };
+  Stream2Map.prototype.onStreamScalarCreated = function(path,value){
+    path.forEach(pathTraverser.bind(null,scalarCreator,{map:this.map,value:value}));
+  };
+  Stream2Map.prototype.onStreamScalarUpdated = function(path,value,oldvalue){
+    path.forEach(pathTraverser.bind(null,scalarUpdater,{map:this.map,value:value}));
+  };
+  Stream2Map.prototype.onStreamCollectionRemoved = function(path){
+    path.forEach(pathTraverser.bind(null,elementDeleter,{map:this.map}));
+  };
+  Stream2Map.prototype.onStreamScalarRemoved = function(path,lastvalue){
+    path.forEach(pathTraverser.bind(null,elementDeleter,{map:this.map}));
+  };
+  return Stream2Map;
+}
+
+module.exports = createStream2Map;
+
+},{}],127:[function(require,module,exports){
+function createStreamBufferCtor(lib,StreamSource,StreamDecoder,StreamDistributor,StreamCoder){
+  'use strict';
+  function StateStreamPathMismatchError(path,itemindex){
+    var ret = new lib.Error('STATE_STREAM_PATH_MISMATCH','Path item '+path[itemindex]+' does not point to a State SubCollection');
+    ret.path = path.slice();
+    ret.itemindex = itemindex;
+    return ret;
+  }
+  lib.inherit(StateStreamPathMismatchError,lib.Error);
+
+  function StreamBuffer(){
+    StreamSource.call(this); //do not destroy sink - that is the StreamDistributor - by default
+    StreamDecoder.call(this);
+    this.stream = new StreamDistributor();
+    this.data = this.createContainer();
+    StreamSource.prototype.setSink.call(this,this.stream);
+  }
+  lib.inherit(StreamBuffer,StreamSource);
+  StreamBuffer.prototype.destroy = function(){
+    //TODO: notify destruction of all
+    this.data.destroy();
+    this.data = null;
+    this.stream.destroy();
+    this.stream = null;
+    StreamDecoder.prototype.destroy.call(this);
+    StreamSource.prototype.destroy.call(this);
+  };
+  StreamBuffer.prototype.createContainer = function(){
+    throw "StreamBuffer has no generic Container creator";
+  };
+  StreamBuffer.prototype.nodeCtor = function(){
+    throw "StreamBuffer has no generic NodeCtor";
+  };
+  StreamBuffer.prototype.onStream = StreamDecoder.prototype.onStream;
+  StreamBuffer.prototype.onStreamCollectionCreated = function(path){
+    this.set(path,new (this.nodeCtor()));
+  };
+  StreamBuffer.prototype.onStreamScalarCreated = function(path,value){
+    this.set(path,value);
+  };
+  StreamBuffer.prototype.onStreamScalarUpdated = function(path,value,oldvalue){
+    this.set(path,value);
+  };
+  StreamBuffer.prototype.onStreamCollectionRemoved = function(path){
+    this.remove(path);
+  };
+  StreamBuffer.prototype.onStreamScalarRemoved = function(path,lastvalue){
+    this.remove(path);
+  };
+  StreamBuffer.prototype.setSink = function(handler){
+    this.dump(handler);
+    return this.stream.attach(handler);
+  };
+  StreamBuffer.prototype.upsert = function(name,val,namearray,target){
+    if (!this.data) {
+      return;
+    }
+    var ditem = this.data.find({name:name}), ret;
+    if(ditem){
+      //update
+      //console.log('updating', name, ':', ret, 'with', val);
+      ret = ditem.content.content;
+      if(ret!==val){
+        ditem.content.content = val;
+        if (this.data.changed) {
+          this.data.changed.fire(name, val);
+        }
+        return target.updateScalar.bind(target,namearray,val,ret);
+      }
+    }else{
+      //insert
+      //console.log('inserting', val, 'at', name);
+      this.data.add(name,val);
+      return val instanceof this.nodeCtor() ? target.newCollection.bind(target,namearray) : target.newScalar.bind(target,namearray,val);
+    }
+    return lib.dummyFunc;
+  };
+  StreamBuffer.prototype.createIfNotExists = function(createobj,name,nameindex,namearry){
+    if(nameindex>=namearry.length-1){
+      createobj.events.push(createobj.target.upsert(name,createobj.val,namearry,this));
+      return;
+    }
+    var target=createobj.target;
+    if(!(target.data && 'function' === typeof target.data.get)){
+      throw new lib.Error(namearry,nameindex);
+    }
+    var item = target.data.get(name), und;
+    if(item===und){
+      if('function' !== typeof target.data.add){
+        throw new lib.Error(namearry,nameindex);
+      }
+      item = new (this.nodeCtor());
+      target.data.add(name,item);
+      createobj.events.push(this.newCollection.bind(this,namearry.slice(0,nameindex+1)));
+    }
+    createobj.target = item;
+  };
+  function _executor(e) {
+    e();
+  }
+  StreamBuffer.prototype.set = function(name,val){ //throws
+    var ton = typeof name, ups;
+    if('string' === ton || name instanceof String){
+      ups = this.upsert(name,val,[name],this);
+      if (ups) {
+        ups();
+      }
+    }else if('object' === ton && name instanceof Array){
+      try{
+      var createobj = {target:this,events:[],val:val};
+      name.forEach(this.createIfNotExists.bind(this,createobj));
+      createobj.events.forEach(_executor);
+      createobj.target = null;
+      createobj.events = null;
+      }
+      catch(er){
+        console.error(er.stack);
+        console.error(er);
+      }
+    }
+    return val;
+  };
+  StreamBuffer.prototype.getInner = function(name,index,collection){
+    if(index===name.length-1){
+      return collection.get(name[index]);
+    }
+    collection = collection.get(name[index]);
+    if(collection){
+      return this.getInner(name,index+1,collection);
+    }
+    return;
+  };
+  StreamBuffer.prototype.get = function(name){
+    if(!this.data){
+      return null;
+    }
+    if(typeof name==='string'){
+      return this.data.get(name);
+    }
+    if(name instanceof Array){
+      return this.getInner(name,0,this);
+    }
+  };
+  StreamBuffer.prototype.reportRemoval = function(name,removeret){
+    if('undefined' !== typeof removeret){
+      if(removeret instanceof (this.nodeCtor())){
+        this.removeCollection(name);
+      }else{
+        this.removeScalar(name,removeret);
+      }
+      //console.log(name,'removed =>',removeret);
+    }
+  };
+  StreamBuffer.prototype.actualRemove = function(name){
+    if (!this.data) {
+      return;
+    }
+    var removeret = this.data.remove(name);
+    this.reportRemoval([name],removeret);
+    return removeret;
+  };
+  StreamBuffer.prototype.remove = function(name,index,collection){
+    if (!this.data) {
+      return;
+    }
+    var ton = typeof name;
+    if('string' === ton || name instanceof String){
+      return this.actualRemove(name);
+    }else{
+      collection = collection||this;
+      //console.log('current collection is',collection,'on',name,index,name[index]);
+      index = index||0;
+      if(index === name.length-1){
+        var ret = collection.actualRemove(name[index]);
+        if(index>0){
+          this.reportRemoval(name,ret);
+        }
+        return ret;
+      }else{
+        var di = collection.data.find({name:name[index]});
+        if(di){
+          return this.remove(name,index+1,di.content.content);
+        }else{
+          return;
+        }
+      }
+    }
+  };
+  function doItem(sc,path,item,itemname){
+    if('object' === typeof item){
+      path.push(itemname);
+      lib.traverse(item,doItem.bind(null,sc,path));
+      path.pop();
+    }else{
+      path.push(itemname);
+      sc.set(path,item);
+      path.pop();
+    }
+  }
+  StreamBuffer.prototype.loadHash = function(hash){
+    lib.traverse(hash,doItem.bind(null,this,[]));
+  };
+  function StreamBufferDumper(coll,sink,start,length){
+    this.sink = sink;
+    if('undefined' !== typeof start && 'undefined' !== typeof length){
+      coll.data.page(this.onItem.bind(this,[]),start,length);
+    }else{
+      coll.data.traverse(this.onItem.bind(this,[]));
+    }
+  }
+  lib.inherit(StreamBufferDumper,StreamCoder);
+  StreamBufferDumper.prototype.destroy = function(){
+    this.sink = null;
+    StreamCoder.prototype.destroy.call(this);
+  };
+  StreamBufferDumper.prototype.newCollection = function(path){
+    this.sink.onStream(StreamCoder.prototype.newCollection.call(this,path));
+  };
+  StreamBufferDumper.prototype.newScalar = function(path,value){
+    this.sink.onStream(StreamCoder.prototype.newScalar.call(this,path,value));
+  };
+  StreamBufferDumper.prototype.onItem = function(path,item,name){
+    if(item && 'function' === typeof item.nodeCtor && item instanceof item.nodeCtor()){
+      path.push(name);
+      this.newCollection(path);
+      item.data.traverse(this.onItem.bind(this,path));
+      path.pop(name);
+    }else{
+      path.push(name);
+      this.newScalar(path,item);
+      path.pop();
+    }
+  };
+  StreamBuffer.prototype.dump = function(func){
+    var d = new StreamBufferDumper(this,func);
+    d.destroy();
+    //return this.data.traverseConditionally(dumper.bind(null,func,path||[]));
+  };
+  StreamBuffer.prototype.digestHash = function(hash){
+    var ss = new StreamSource(),
+      f = StreamSource.chain([ss,this]);
+    ss.doHash(hash);
+    f.destroy();
+    ss.destroy();
+  };
+  return StreamBuffer;
+}
+
+module.exports = createStreamBufferCtor;
+
+},{}],128:[function(require,module,exports){
+(function (process){(function (){
+function createStreamDecoder(lib,StreamSink){
+  'use strict';
+  function StreamDecoder(){
+    StreamSink.call(this);
+  }
+  lib.inherit(StreamDecoder,StreamSink);
+  StreamDecoder.prototype.onStream = function(item){
+    if(item.o==='c'){
+      this.onStreamCollectionCreated(item.p);
+    }else if(item.o==='s'){
+      if (!this.onStreamScalarCreated) {
+        console.trace();
+        console.error('dafuq am I?', this);
+        process.exit(0);
+        return;
+      }
+      this.onStreamScalarCreated(item.p,item.d);
+    }else if(item.o==='u'){
+      this.onStreamScalarUpdated(item.p,item.d[0],item.d[1]);
+    }else if(item.o==='cr'){
+      this.onStreamCollectionRemoved(item.p);
+    }else if(item.o==='sr'){
+      this.onStreamScalarRemoved(item.p,item.d);
+    }
+  };
+  StreamDecoder.prototype.onStreamCollectionCreated = function(path){
+  };
+  StreamDecoder.prototype.onStreamScalarCreated = function(path,value){
+  };
+  StreamDecoder.prototype.onStreamScalarUpdated = function(path,value,oldvalue){
+  };
+  StreamDecoder.prototype.onStreamCollectionRemoved = function(path){
+  };
+  StreamDecoder.prototype.onStreamScalarRemoved = function(path,lastvalue){
+  };
+  return StreamDecoder;
+}
+
+module.exports = createStreamDecoder;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],129:[function(require,module,exports){
+function createStreamPathListener(lib,StreamSource, Stream2Map){
+  'use strict';
+  function StringComparer(str){
+    this.string = str;
+  }
+  StringComparer.prototype.destroy = function(){
+    this.string = null;
+  };
+  StringComparer.prototype.matches = function(string){
+    return this.string === string;
+  };
+  StringComparer.prototype.criterion = function () {
+    return this.string;
+  }
+  function RegExpComparer(regexp){
+    this.regexp = regexp;
+  }
+  RegExpComparer.prototype.matches = function(string){
+    return this.regexp.test(string);
+  }
+  RegExpComparer.prototype.criterion = function () {
+    return this.regexp;
+  };
+  function ArrayComparer(arry){
+    this.array = arry;
+  }
+  ArrayComparer.prototype.destroy = function(){
+    this.array = null;
+  };
+  ArrayComparer.prototype.matches = function(string){
+    return this.array.indexOf(string)>=0;
+  };
+  ArrayComparer.prototype.criterion = function () {
+    return this.array;
+  };
+  function AllPassComparer(){
+  }
+  AllPassComparer.prototype.destroy = lib.dummyFunc;
+  AllPassComparer.prototype.matches = function(){
+    return true;
+  };
+  AllPassComparer.prototype.criterion = function () {
+    return '*';
+  };
+  function createComparer(something){
+    if(lib.isArray(something)){
+      return new ArrayComparer(something);
+    }
+    if(lib.isString(something)){
+      return new StringComparer(something);
+    }
+    if(something instanceof RegExp){
+      return new RegExpComparer(something);
+    }
+    if(something === null){
+      return new AllPassComparer;
+    }
+  }
+  function StreamPathListener(pathmask,destroysinktoo){
+    //console.trace();
+    //console.log('new StreamPathListener', pathmask);
+    StreamSource.call(this,destroysinktoo);
+    this.pathmask = pathmask.map(createComparer);
+    if(!(this.pathmask && lib.isArray(this.pathmask))){
+      throw 'StreamPathListener needs a pathmask in constructor';
+    }
+    this.masklen = this.pathmask.length;
+  };
+  lib.inherit(StreamPathListener,StreamSource);
+  StreamPathListener.prototype.destroy = function(){
+    if(!this.pathmask){
+      return;
+    }
+    lib.arryDestroyAll(this.pathmask);
+    this.masklen = null;
+    this.pathmask = null;
+    StreamSource.prototype.destroy.call(this);
+  };
+  function comparer(path,pathmitem,index,pathm){
+    if(!pathmitem){
+      console.error("What's wrong with",pathm,"?!");
+    }
+    return pathmitem.matches(path[index]);
+  }
+  StreamPathListener.prototype.onStream = function(item){
+    if(!item.p){
+      return;
+    }
+    if(!this.masklen){
+      return;
+    }
+    //console.log(item,'for',this.pathmask,this.masklen);
+    //console.log(item,'for length of pathmask',this.masklen);
+    var path = item.p;
+    if(path.length!==this.masklen){
+      //console.log('nok');
+      return;
+    }
+    if(this.pathmask.every(comparer.bind(null,path))){
+      this.handleStreamItemSuper(item);
+    }else{
+      //console.log(process.pid, 'nok', item.p, 'because', this.pathmask.map(function(item){return item.criterion();}));
+    }
+  };
+  StreamPathListener.prototype.handleStreamItem = StreamPathListener.prototype.onStream;
+  StreamPathListener.prototype.handleStreamItemSuper = function (item) {
+    StreamSource.prototype.handleStreamItem.call(this, item);
+  };
+  return StreamPathListener;
+}
+
+module.exports = createStreamPathListener;
+
+},{}],130:[function(require,module,exports){
+function createStreamPathModifier(lib,StreamSource){
+  'use strict';
+  function StreamPathModifier(modifierfunc,destroysinktoo){
+    StreamSource.call(this,destroysinktoo);
+    this.modifierfunc = modifierfunc;
+  }
+  lib.inherit(StreamPathModifier,StreamSource);
+  StreamPathModifier.prototype.destroy = function(){
+    this.modifierfunc = null;
+    StreamSource.prototype.destroy.call(this);
+  };
+  StreamPathModifier.prototype.onStream = function(item){
+    var originalp = item.p, p = this.modifierfunc(originalp);
+    if(p instanceof Array){
+      item.p = p;
+      this.handleStreamItem(item);
+      item.p = originalp;
+    }
+  };
+  return StreamPathModifier;
+}
+
+module.exports = createStreamPathModifier;
+
+},{}],131:[function(require,module,exports){
+function createSubServiceExtractor(lib,StreamSource){
+  'use strict';
+
+  function SubSinkDestroyedListener(sse, cb, sink, subservicename) {
+    this.name = subservicename;
+    this.sse = sse;
+    this.item = null;
+    this.cb = cb;
+    this.listener = null;
+    if (sse && sse.listeners && sink && sink.destroyed) {
+      this.item = sse.listeners.add(this);
+      this.listener = sink.destroyed.attach(this.destroy.bind(this));
+      this.cb(sink);
+    } else {
+      this.destroy();
+    }
+  }
+  SubSinkDestroyedListener.prototype.destroy = function() {
+    //console.log('SubSinkDestroyedListener',this.name,'firing destroyed');
+    if (!this.listener) {
+      return;
+    }
+    this.listener.destroy();
+    this.listener = null;
+    this.cb();
+    this.cb = null;
+    this.sse.listeners.removeOne(this.item);
+    this.item = null;
+    this.sse = null;
+    this.name = null;
+  };
+
+  function SubServiceExtractor(supersink,initmap,destroysinktoo){
+    StreamSource.call(this,destroysinktoo);
+    this.supersink = supersink;
+    if(!(initmap && initmap.count)){
+      //console.log('SubServiceExtractor will not work without init parameters in initmap');
+    }
+    this.initmap = initmap;
+    this.listeners = new lib.SortedList();
+    supersink.extendTo(this); //fasten the safety belt
+  }
+  lib.inherit(SubServiceExtractor,StreamSource);
+  SubServiceExtractor.prototype.destroy = function(){
+    //I might be called for several times
+    if(!this.initmap){
+      return;
+    }
+    if (this.listeners) {
+      lib.containerDestroyAll(this.listeners);
+      this.listeners.destroy();
+    }
+    this.listeners = null;
+    this.initmap.destroy();
+    this.initmap = null;
+    this.supersink = null;
+    StreamSource.prototype.destroy.call(this);
+  };
+  SubServiceExtractor.prototype.onStream = function(item){
+    var p = item.p,
+      subservicename,
+      initparams;
+    if(p && p.length===1 && p[0].indexOf('have')===0 && item.o==='s' && item.d===true) {
+      subservicename = p[0].substring(4);
+      initparams = this.initmap.get(subservicename);
+      if(initparams){
+        //console.log('SubServiceExtractor trying to subConnect to', subservicename, 'as', initparams);
+        this.supersink.subConnect(subservicename,initparams.identity,initparams.propertyhash).done(
+          this.onSubConnected.bind(this,initparams.cb,subservicename),
+          this.onSubConnectFailed.bind(this,initparams.cb,subservicename)
+        );
+      }
+    }
+    this.handleStreamItem(item);
+  };
+  SubServiceExtractor.prototype.onSubConnected = function(cb,subservicename,sink){
+    //console.log('SubServiceExtractor got',subservicename,'sink');
+    new SubSinkDestroyedListener(this,cb,sink,subservicename);
+  };
+  SubServiceExtractor.prototype.onSubConnectFailed = function(cb,subservicename,reason){
+    //console.error('SubServiceExtractor got',reason,'trying to subConnect to',subservicename);
+    cb(null);
+  };
+  return SubServiceExtractor;
+}
+
+module.exports = createSubServiceExtractor;
+
+},{}],132:[function(require,module,exports){
+function createBlackHole(lib){
+  'use strict';
+  function BlackHole(){
+  }
+  BlackHole.prototype.destroy = lib.dummyFunc;
+  BlackHole.prototype.onStream = lib.dummyFunc;
+  return BlackHole;
+}
+
+module.exports = createBlackHole;
+
+},{}],133:[function(require,module,exports){
+function createStreamDistributor(lib,StreamSink){
+  'use strict';
+  function StreamDistributor(){
+    StreamSink.call(this);
+    this.sinks = new lib.Fifo();
+  }
+  lib.inherit(StreamDistributor,StreamSink);
+  StreamDistributor.prototype.destroy = function(){
+    var sinks = this.sinks;
+    this.sinks = null;
+    if (sinks) {
+      lib.containerDestroyAll(sinks);
+      sinks.destroy();
+    }
+    StreamSink.prototype.destroy.call(this);
+  };
+  StreamDistributor.prototype.attach = function(sink){
+    if(!sink.onStream){
+      throw new lib.Error('NO_ONSTREAM', 'sink needs the onStream method');
+    }
+    if(!sink.destroyed){
+      return;
+    }
+    var ret = this.sinks.push(sink);
+    sink.destroyed.attachForSingleShot(this.onSinkDown.bind(this,ret));
+    return ret;
+  };
+  StreamDistributor.prototype.doTrigger = function(item,sink){
+    if(!sink.destroyed){
+      return;
+    }
+    sink.onStream(item);
+  }
+  StreamDistributor.prototype.onStream = function(item){
+    if (!this.sinks) {
+      return;
+    }
+    this.sinks.traverse(this.doTrigger.bind(this,item));
+  };
+  StreamDistributor.prototype.onSinkDown = function(sinkitem){
+    //there might exist a dead loop during my destroy
+    if(!this.sinks){
+      return;
+    }
+    this.sinks.remove(sinkitem);
+    sinkitem.destroy();
+    sinkitem = null;
+  };
+  return StreamDistributor;
+}
+
+module.exports = createStreamDistributor;
+
+},{}],134:[function(require,module,exports){
+function createStreamLib (lib) {
+  'use strict';
+  var StreamSink = require('./sinkcreator')(lib);
+
+  return {
+    streamSourceCreator: require('./sourcecreator')(lib),
+    StreamSink: StreamSink,
+    StreamBlackHole: require('./blackholecreator')(lib),
+    StreamSinkBunch: require('./sinkbunchcreator')(lib,StreamSink),
+    StreamDistributor: require('./distributorcreator')(lib,StreamSink)
+  };
+}
+
+module.exports = createStreamLib;
+
+},{"./blackholecreator":132,"./distributorcreator":133,"./sinkbunchcreator":135,"./sinkcreator":136,"./sourcecreator":137}],135:[function(require,module,exports){
+function createStreamSinkBunch(lib,StreamSink){
+  'use strict';
+  function StreamSinkBunch(arryofsinks){
+    StreamSink.call(this);
+    this.arry = arryofsinks;
+  }
+  lib.inherit(StreamSinkBunch,StreamSink);
+  StreamSinkBunch.prototype.destroy = function(){
+    this.arry = null;
+  };
+  StreamSinkBunch.prototype.destroyWithSinks = function(){
+    lib.arryDestroyAll(this.arry);
+    this.destroy();
+  };
+  StreamSinkBunch.prototype.onStream = function(item){
+    if(!this.arry){
+      return;
+    }
+    this.arry.forEach(function(sink){
+      sink.onStream(item);
+    });
+    item = null;
+  };
+  return StreamSinkBunch;
+}
+
+module.exports = createStreamSinkBunch;
+
+},{}],136:[function(require,module,exports){
+function createStreamSink(lib){
+  'use strict';
+  function StreamSink(){
+  }
+  StreamSink.prototype.destroy = lib.dummyFunc;
+  StreamSink.prototype.onStream = function(item){
+  };
+  return StreamSink;
+}
+
+module.exports = createStreamSink;
+
+},{}],137:[function(require,module,exports){
+(function (process){(function (){
+function createGenericStreamSource(lib){
+  'use strict';
+  return function createStreamSource(StreamCoder, nosafetybelt, bufferctor){
+    function StreamSource(destroysinktoo){
+      StreamCoder.call(this);
+      this.destroysinktoo = destroysinktoo;
+      this.sink = null;
+    }
+    lib.inherit(StreamSource,StreamCoder);
+    function produceMethodForwarder(method,methodname){
+      var scpm = StreamCoder.prototype[methodname];
+      StreamSource.prototype[methodname] = function(){
+        this.handleStreamItem(scpm.apply(this,arguments));
+      };
+    }
+    lib.traverse(StreamCoder.prototype,produceMethodForwarder);
+    StreamSource.prototype.destroy = function(){
+      if(this.buffer){
+        this.buffer.destroy();
+        this.buffer = null;
+      }
+      if(this.destroysinktoo && this.sink){
+        this.sink.destroy();
+      }
+      this.sink = null;
+      this.destroysinktoo = null;
+      StreamCoder.prototype.destroy.call(this);
+    };
+    StreamSource.prototype.handleStreamItem = function(item){
+      if(this.sink){
+        this.sink.onStream(item);
+      }else{
+        if (!this.buffer) {
+          this.createBuffer();
+        }
+        if (this.buffer) {
+          this.buffer.push(item);
+        }
+      }
+    };
+    StreamSource.prototype.createBuffer = function () {
+      this.buffer = new (bufferctor || lib.Fifo) ();
+      if (!nosafetybelt) {
+        lib.runNext(this.checkOnBuffer.bind(this), 5000);
+      }
+    };
+    if (!nosafetybelt) {
+      StreamSource.prototype.checkOnBuffer = function () {
+        if (this.buffer) {
+          this.buffer.destroy();
+          this.buffer = null;
+        }
+      };
+    }
+    function bufferItemDumper(item){
+        console.log(process.pid, item);
+      }
+    StreamSource.prototype.dumpBufferToConsole = function () {
+      this.buffer.container.traverse(bufferItemDumper);
+    };
+    StreamSource.prototype.onStream = StreamSource.prototype.handleStreamItem;
+    function doItem(sc,path,item,itemname){
+      if('object' === typeof item){
+        path.push(itemname);
+        sc.newCollection(path);
+        lib.traverse(item,doItem.bind(null,sc,path));
+        path.pop();
+      }else{
+        path.push(itemname);
+        sc.newScalar(path,item);
+        path.pop();
+      }
+    }
+    StreamSource.prototype.doHash = function(hash){
+      lib.traverseShallow(hash,doItem.bind(null,this,[]));
+    };
+    StreamSource.prototype.setSink = function(sink){
+      this.sink = sink;
+      if(this.sink && this.buffer && this.buffer.length){
+        this.buffer.drain(this.sink.onStream.bind(this.sink));
+      }
+    };
+    StreamSource.chain = function(filterarry){
+      return new StreamChain(filterarry);
+    };
+    StreamSource.prototype.Coder = StreamCoder;
+
+    function chainer(filter,index,filters){
+      var last;
+      if(index===0){
+        return;
+      }
+      last = filters[index-1];
+      if(!lib.isFunction(filter.onStream)){
+        throw new Error('Filter chain link at index '+index+' is not a StreamSink');
+      }
+      if(!lib.isFunction(last.setSink)){
+        throw new Error('Filter chain link at index '+(index-1)+' is not a StreamSource');
+      }
+      last.setSink(filter);
+    }
+    function StreamChain (filterarry) {
+      this.filters = filterarry;
+      filterarry.forEach(chainer);
+    }
+    StreamChain.prototype.destroy = function () {
+      if (this.filters) {
+        lib.arryDestroyAll(this.filters);
+      }
+      this.filters = null;
+    };
+    StreamChain.prototype.handleStreamItem = function (item) {
+      if (!(this.filters && this.filters.length)) {
+        return;
+      }
+      return this.filters[0].handleStreamItem(item);
+    };
+    StreamChain.prototype.onStream = StreamChain.prototype.handleStreamItem;
+    StreamChain.prototype.setSink = function (sink) {
+      if (!(this.filters && this.filters.length)) {
+        return;
+      }
+      return this.filters[this.filters.length-1].setSink(sink);
+    };
+    return StreamSource;
+  };
+}
+
+module.exports = createGenericStreamSource;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],138:[function(require,module,exports){
 (function (process){(function (){
 function createStringBuffer (Fifo, debug) {
   'use strict';
 
   var _zeroString = String.fromCharCode(0);
 
-  function StringBuffer (maxlength) {
+  function StringBuffer (maxlength, delimiter) {
     this.maxlength = maxlength || 64*1024;
     this.fifo = new Fifo();
     this.buffer = '';
+    this.delimiter = (delimiter instanceof String || 'string' === typeof delimiter) ? delimiter : _zeroString;
   }
   StringBuffer.prototype.destroy = function () {
     this.buffer = null;
@@ -8107,11 +11160,24 @@ function createStringBuffer (Fifo, debug) {
       }
     }
     if (this.buffer) {
-      this.buffer += (_zeroString+string);
+      this.buffer += (this.delimiter+string);
     } else {
       this.buffer = string;
     }
   }
+  StringBuffer.prototype.addWithHandlers = function (string, wasemptyhandler, wasnotemptyhandler) {
+    var wasempty = !this.hasContents();
+    this.add(string);
+    if (wasempty) {
+      if ('function' === typeof wasemptyhandler) {
+        wasemptyhandler();
+      }
+      return;
+    }
+    if ('function' === typeof wasnotemptyhandler) {
+      wasnotemptyhandler();
+    }
+  };
   StringBuffer.prototype.get = function (consumerfunc) {
     var ret;
     if (!this.fifo.length) {
@@ -8146,11 +11212,12 @@ function createStringBuffer (Fifo, debug) {
   StringBuffer.prototype.onStringToConsume = function (consumerfunc, string) {
     StringBuffer.consumeString(string, consumerfunc);
   };
-  StringBuffer.consumeString = function (string, func, dojsonparse) {
-    var c1, c2, sl = string.length;
+  StringBuffer.consumeString = function (string, func, dojsonparse, delimiterchar) {
+    var c1, c2, dc, sl = string.length;
     c1 = c2 = 0;
+    dc = delimiterchar || 0;
     while (c2 < sl) {
-      if (string.charCodeAt(c2) === 0) {
+      if (string.charCodeAt(c2) === dc) {
         func(stringFromPositions(string, c1, c2, dojsonparse));
         c1 = c2+1;
       }
@@ -8190,7 +11257,7 @@ module.exports = createStringBuffer;
 
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],98:[function(require,module,exports){
+},{"_process":355}],139:[function(require,module,exports){
 function createMisc(isString, isNull) {
   'use strict';
 
@@ -8336,6 +11403,28 @@ function createMisc(isString, isNull) {
     return lead+(force_lower ? rest.toLowerCase() : rest);
   }
 
+  function join2StringsWith (deststr, srcstr, joiner) {
+    var realjoiner = deststr ? joiner || '' : '';
+    return (deststr || '') + (srcstr ? realjoiner+srcstr : '');
+  }
+  function multiJoinReducer (joiner, result, str) {
+    return join2StringsWith(result, str, joiner);
+  }
+  function joinStringsWith () {
+    var args = Array.prototype.slice.call(arguments),
+      joiner = args.pop(),
+      ret;
+    if (args.length<1) {
+      return joiner;
+    }
+    if (args.length<2) {
+      return join2StringsWith(args[0], joiner);
+    }
+    ret = args.reduce(multiJoinReducer.bind(null, joiner), '');
+    joiner = null;
+    return ret;
+  }
+
   return {
     prependToString: prependToString,
     thousandSeparate : thousandSeparate,
@@ -8343,13 +11432,335 @@ function createMisc(isString, isNull) {
     readPropertyFromDotDelimitedString: readPropertyFromDotDelimitedString,
     writePropertyFromDelimitedString : writePropertyFromDelimitedString,
     capitalize : capitalize,
+    joinStringsWith: joinStringsWith,
     querystring : require('querystring')
   };
 }
 
 module.exports = createMisc;
 
-},{"querystring":343}],99:[function(require,module,exports){
+},{"querystring":366}],140:[function(require,module,exports){
+(function (process){(function (){
+function createTask(execlib){
+  'use strict';
+  var lib = execlib.lib,
+      execSuite = execlib.execSuite,
+      taskRegistry = execSuite.taskRegistry,
+      ResolvableTaskError = execSuite.ResolvableTaskError;
+  function TaskConstructionError(missingpropname){
+    var ret = new lib.Error('TASK_CONSTRUCTION_ERROR','Constructor property hash lacks the '+missingpropname+' property');
+    ret.missingpropname = missingpropname;
+    return ret;
+  };
+  lib.inherit(TaskConstructionError,lib.Error);
+  function propExistenceChecker(prophash,compulsorypropname){
+    if(!(compulsorypropname in prophash)){
+      //console.log('TASK CONSTRUCTION PROPHASH FAILED',prophash, compulsorypropname);
+      throw new TaskConstructionError(compulsorypropname);
+    }
+  }
+  function Task(prophash){
+    //console.log('!!! Task compulsoryConstructionProperties',this.compulsoryConstructionProperties);
+    this.compulsoryConstructionProperties.forEach(propExistenceChecker.bind(null,prophash));
+    if(!prophash.debug){
+      this.log = lib.dummyFunc;
+    }
+  };
+  Task.prototype.destroy = lib.dummyFunc;
+  Task.prototype.raiseException = function(e){
+    if(!e.code){
+      throw new lib.NotAnAllexErrorError(e);
+    }
+    /* TODO: Recognize a ResolvableTaskError
+    if(!(e instanceof ResolvableTaskError)){
+      console.log(e,'not instanceof',ResolvableTaskError);
+      throw "Sta sad?";
+    }
+    */
+    taskRegistry.registerException(this,e);
+  };
+  Task.prototype.log = function(){
+    var args = Array.prototype.slice.call(arguments);
+    if(this.debugPid){
+      args.unshift(process.pid);
+    }
+    console.log.apply(console,args);
+  };
+  Task.prototype.debugMode = function () {
+    return this.log !== lib.dummyFunc;
+  };
+  Task.prototype.compulsoryConstructionProperties = [];
+  return Task;
+}
+
+module.exports = createTask;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],141:[function(require,module,exports){
+function createDestroyableTask(execlib){
+  'use strict';
+  var lib = execlib.lib,
+      Destroyable = lib.Destroyable,
+      Task = execlib.execSuite.Task;
+  function DestroyableTask(prophash,destroyablenameinprophash){
+    if(!destroyablenameinprophash){
+      throw new lib.Error('NO_NAME_OF_DESTROYABLE_FOR_TASK_PROPERTYHASH','DestroyableTask needs a second construction parameter: destroyablenameinprophash');
+    }
+    if(!(destroyablenameinprophash in prophash)){
+      throw new lib.Error('NO_DESTROYABLE_FOUND_IN_TASK_PROPERTYHASH',destroyablenameinprophash+' does not map to a Destroyable in propertyhash');
+    }
+    var d = prophash[destroyablenameinprophash];
+    if(!d) {
+      throw new lib.Error('NO_DESTROYABLE_FOUND_IN_TASK_PROPERTYHASH',destroyablenameinprophash+' does not map to a Destroyable in propertyhash');
+    }
+    if(!(d.destroyed && d.destroyed.attach)){
+      var e = new lib.Error('NOT_A_DESTROYABLE',destroyablenameinprophash+' maps to something that is not a Destroyable');
+      e.destroyablename = destroyablenameinprophash;
+      e.notDestroyable = d;
+      throw e;
+    }
+    Destroyable.call(this);
+    Task.call(this,prophash);
+    this.destroyListener = d.destroyed.attach(this.destroy.bind(this));
+  }
+  lib.inherit(DestroyableTask,Task);
+  lib.inheritMethods(DestroyableTask,Destroyable,'destroy','extendTo');
+  DestroyableTask.prototype.__cleanUp = function(){
+    if(!this.destroyListener){
+      return;
+    }
+    this.destroyListener.destroy();
+    this.destroyListener = null;
+    Task.prototype.destroy.call(this);
+    Destroyable.prototype.__cleanUp.call(this);
+  };
+  return DestroyableTask;
+}
+
+module.exports = createDestroyableTask;
+
+},{}],142:[function(require,module,exports){
+function createTaskSuite(execlib){
+  'use strict';
+  var execSuite = execlib.execSuite,
+      taskSuite = {
+        UnknownTaskClassError: require('./unknowntaskclasserrorcreator')(execlib),
+        NotATaskDescriptorError: require('./notataskdescriptorerrorcreator')(execlib),
+        ResolvableTaskError: require('./resolvableerrorcreator')(execlib)
+      };
+  require('./registrycreator')(execlib,taskSuite);
+  execSuite.ResolvableTaskError = taskSuite.ResolvableTaskError;
+  execSuite.Task = require('./creator')(execlib);
+  execSuite.DestroyableTask = require('./destroyabletaskcreator')(execlib);
+  execSuite.MultiDestroyableTask = require('./multidestroyabletaskcreator')(execlib);
+  execSuite.SinkTask = require('./sinktaskcreator')(execlib);
+}
+
+module.exports = createTaskSuite;
+
+},{"./creator":140,"./destroyabletaskcreator":141,"./multidestroyabletaskcreator":143,"./notataskdescriptorerrorcreator":144,"./registrycreator":145,"./resolvableerrorcreator":146,"./sinktaskcreator":147,"./unknowntaskclasserrorcreator":148}],143:[function(require,module,exports){
+function createMultiDestroyableTask(execlib){
+  'use strict';
+  var lib = execlib.lib,
+      Destroyable = lib.Destroyable,
+      Task = execlib.execSuite.Task;
+
+  function attachDestroyedListener(mdt,prophash,destroyablename){
+    var d = prophash[destroyablename];
+    if(!(d.destroyed && d.destroyed.attach)){
+      var e = new lib.Error('NOT_A_DESTROYABLE',destroyablenameinprophash+' maps to something that is not a Destroyable');
+      e.destroyablename = destroyablenameinprophash;
+      e.notDestroyable = d;
+      throw e;
+    }
+    return d.destroyed.attach(mdt.destroy.bind(mdt));
+  }
+  function MultiDestroyableTask(prophash,destroyablenamesinprophash){
+    if(!lib.isArray(destroyablenamesinprophash)){
+      throw new lib.Error('DESTROYABLE_NAMES_MUST_BE_AN_ARRAY','MultiDestroyableTask needs a second construction parameter - destroyablenamesinprophash - to be an array');
+    }
+    this.destroyListeners = destroyablenamesinprophash.map(attachDestroyedListener.bind(null,this,prophash));
+  }
+  lib.inherit(MultiDestroyableTask,Task);
+  MultiDestroyableTask.prototype.__cleanUp = function(){
+    lib.arryDestroyAll(this.destroyListeners);
+    this.destroyListeners = null;
+  };
+  return MultiDestroyableTask;
+}
+
+module.exports = createMultiDestroyableTask;
+
+},{}],144:[function(require,module,exports){
+function createNotATaskDescriptorError(execlib){
+  'use strict';
+  var lib = execlib.lib;
+  function NotATaskDescriptorError(descriptor){
+    var ret = new lib.Error('NOT_A_TASK_DESCRIPTOR','Provided object does not have the name, klass and optional errorhandlers properties');
+    ret.descriptor = descriptor;
+    return ret;
+  }
+  lib.inherit(NotATaskDescriptorError,lib.Error);
+  return NotATaskDescriptorError;
+}
+
+module.exports = createNotATaskDescriptorError;
+
+},{}],145:[function(require,module,exports){
+var _taskRegistryInstance;
+function createTaskRegistry(execlib,taskSuite){
+  'use strict';
+  var UnknownTaskClassError = taskSuite.UnknownTaskClassError,
+      NotATaskDescriptorError = taskSuite.NotATaskDescriptorError,
+      lib = execlib.lib,
+      execSuite = execlib.execSuite;
+
+  if(execSuite.taskRegistry){
+    return;
+  }
+
+  function MapOfArrays(){
+    lib.Map.call(this);
+  }
+  lib.inherit(MapOfArrays,lib.Map);
+  MapOfArrays.prototype.add = function(name,val){
+    var it = this.get(name);
+    if(!it){
+      it = [];
+      lib.Map.prototype.add.call(this,name,it);
+    }
+    it.push(val);
+  };
+  MapOfArrays.prototype.remove = function(){
+    throw new lib.Error('NO_REMOVAL_FROM_MAP_OF_ARRAYS','Only generic Map remove may be used');
+  };
+  MapOfArrays.prototype.resolve = function(name,prophash){
+    //TODO: now what?
+  };
+
+  function TaskRegistry(){
+    this.modulesDone = new lib.DIContainer();
+    this.ctors = new lib.Map;
+    this.rtExceptions = new MapOfArrays;
+  }
+  TaskRegistry.prototype.destroy = function(){
+    this.ctors.destroy();
+    this.ctors = null;
+    this.modulesDone.destroy();
+  };
+  TaskRegistry.prototype.moduleDone = function (modulename) {
+    var ret = this.modulesDone.busy(modulename);
+    if (!ret) {
+      this.modulesDone.waitFor(modulename);
+    }
+    return ret;
+  };
+  TaskRegistry.prototype.register = function (modulename, tasks) {
+    tasks.forEach(this.registerClass.bind(this));
+    this.modulesDone.register(modulename, true);
+  };
+  TaskRegistry.prototype.registerClass = function(classdescriptor){
+    if('object' !== typeof classdescriptor){
+      throw new NotATaskDescriptorError(classdescriptor);
+    }
+    if(!('name' in classdescriptor)){
+      throw new NotATaskDescriptorError(classdescriptor);
+    }
+    if('function' !== typeof classdescriptor.klass){
+      throw new NotATaskDescriptorError(classdescriptor);
+    }
+    this.ctors.add(classdescriptor.name,classdescriptor.klass);
+  };
+  TaskRegistry.prototype.spawn = function(taskclassname,prophash){
+    var tctor = this.ctors.get(taskclassname);
+    if(!tctor){
+      throw new UnknownTaskClassError(taskclassname);
+    }
+    return new tctor(prophash);
+  };
+  TaskRegistry.prototype.run = function(taskclassname,propertyhash){
+    var ret = this.spawn(taskclassname,propertyhash);
+    ret.go();
+    return ret;
+  };
+  TaskRegistry.prototype.registerException = function(task,e){
+    console.log('should registerException',e,'for',task);
+    this.rtExceptions.add(e.code,task);
+  };
+  TaskRegistry.prototype.hasAll = function (taskpack) {
+    return lib.traverseConditionally(taskpack, this.misses)!==true;
+  };
+  TaskRegistry.prototype.misses = function (taskname) {
+    if (!this.ctors.get(taskname)) {
+      return true;
+    }
+  };
+  execSuite.taskRegistry = new TaskRegistry;
+}
+
+module.exports = createTaskRegistry;
+
+},{}],146:[function(require,module,exports){
+function createResolvableError(execlib){
+  'use strict';
+  var lib = execlib.lib;
+  function ResolvableError(){
+    var ret = lib.Error.call(this,'RESOLVABLE_TASK_ERROR','Task Error that can be resolved by manual intervention');
+    return ret;
+  }
+  lib.inherit(ResolvableError,lib.Error);
+  return ResolvableError;
+}
+
+module.exports = createResolvableError;
+
+},{}],147:[function(require,module,exports){
+function createSinkTask(execlib){
+  'use strict';
+  var lib = execlib.lib,
+      DestroyableTask = execlib.execSuite.DestroyableTask;
+  function SinkTask(prophash){
+    if(this.compulsoryConstructionProperties.indexOf('sink')<0){
+      throw new lib.Error('NO_SINK_IN_COMPULSORY_CONSTRUCTION_PROPERTIES',"This class has to have 'sink' in the prototype.compulsoryConstructionProperties array");
+    }
+    DestroyableTask.call(this,prophash,'sink');
+  }
+  lib.inherit(SinkTask,DestroyableTask);
+  SinkTask.prototype.__cleanUp = function(){
+    DestroyableTask.prototype.__cleanUp.call(this);
+  };
+  return SinkTask;
+}
+
+module.exports = createSinkTask;
+
+},{}],148:[function(require,module,exports){
+function createUnknownTaskClassError(execlib){
+  'use strict';
+  var lib = execlib.lib;
+  function UnknownTaskClassError(classname){
+    var ret = new lib.Error('UNKNOWN_TASK_CLASS','Task Class has not been registered under name '+classname);
+    ret.classname = classname;
+    return ret;
+  }
+  lib.inherit(UnknownTaskClassError,lib.Error);
+  return UnknownTaskClassError;
+}
+
+module.exports = createUnknownTaskClassError;
+
+},{}],149:[function(require,module,exports){
+var Os = require('os');
+
+module.exports = function tempPipeDir () {
+  if (Os.type() === 'Windows_NT') {
+    return '\\\\.\\pipe';
+  }
+  return '/tmp'; //Os.tmpdir();
+};
+
+
+},{"os":342}],150:[function(require,module,exports){
 (function (setImmediate,clearImmediate){(function (){
 function setImmediates(outlib){
   if(!('clearImmediate' in this)){
@@ -8368,7 +11779,7 @@ function setImmediates(outlib){
 module.exports = setImmediates;
 
 }).call(this)}).call(this,require("timers").setImmediate,require("timers").clearImmediate)
-},{"timers":374}],100:[function(require,module,exports){
+},{"timers":396}],151:[function(require,module,exports){
 function createTimeoutLib(isFunction, Fifo) {
   var ret = {};
   require('./immediates')(ret);
@@ -8379,7 +11790,7 @@ function createTimeoutLib(isFunction, Fifo) {
 
 module.exports = createTimeoutLib;
 
-},{"./immediates":99,"./next":101}],101:[function(require,module,exports){
+},{"./immediates":150,"./next":152}],152:[function(require,module,exports){
 function augmentWithNext(isFunction, Fifo, outlib){
   var _setImmediate = outlib.setImmediate,
     _clearImmediate = outlib.clearImmediate,
@@ -8503,7 +11914,2020 @@ function augmentWithNext(isFunction, Fifo, outlib){
 module.exports = augmentWithNext;
 
 
-},{}],102:[function(require,module,exports){
+},{}],153:[function(require,module,exports){
+function createDestinationError(lib){
+  'use strict';
+  var AllexError = lib.Error;
+  function DestinationError(protocol,address,port){
+    var description = 'Could not connect to '+protocol+'://'+address;
+    if(port){
+      description += (':'+port);
+    }
+    var ret = AllexError.call(this,'ADDRESS_NOT_FOUND',description);
+    ret.transport = 'DestinationError';
+    ret.address = address;
+    ret.port = port;
+    return ret;
+  }
+  lib.inherit(DestinationError,AllexError);
+  return DestinationError;
+}
+
+module.exports = createDestinationError;
+
+},{}],154:[function(require,module,exports){
+function createTransportErrors(lib){
+  'use strict';
+  lib.DestinationError = require('./destinationerrorcreator')(lib);
+  lib.UnsupportedProtocolError = require('./unsupportedprotocolerrorcreator')(lib);
+  lib.UnconnectableError = require('./unconnectableerrorcreator')(lib);
+  lib.NoServerError = require('./noservererrorcreator')(lib);
+};
+
+module.exports = createTransportErrors;
+
+},{"./destinationerrorcreator":153,"./noservererrorcreator":155,"./unconnectableerrorcreator":156,"./unsupportedprotocolerrorcreator":157}],155:[function(require,module,exports){
+function createNoServerError(lib){
+  'use strict';
+  var AllexError = lib.Error;
+  function NoServerError(protocol,address,port){
+    var description = 'No server at '+protocol+'://'+address;
+    if(port){
+      description += (':'+port);
+    }
+    var ret = AllexError.call(this,'NO_SERVER',description);
+    ret.transport = 'NoServerError';
+    ret.address = address;
+    ret.port = port;
+    return ret;
+  }
+  lib.inherit(NoServerError,AllexError);
+  return NoServerError;
+}
+
+module.exports = createNoServerError;
+
+
+},{}],156:[function(require,module,exports){
+function createUnconnectableError(lib){
+  'use strict';
+  var AllexError = lib.Error;
+  function UnconnectableError(connectionstring){
+    var ret = AllexError.call(this,'BAD_ADDRESS','Connection string '+connectionstring+' is not connectable');
+    ret.transport = 'UnconnectableError';
+    ret.connectionstring = connectionstring;
+    return ret;
+  }
+  lib.inherit(UnconnectableError,AllexError);
+  return UnconnectableError;
+}
+
+module.exports = createUnconnectableError;
+
+},{}],157:[function(require,module,exports){
+function createUnsupportedProtocolError(lib){
+  'use strict';
+  var AllexError = lib.Error;
+  function UnsupportedProtocolError(protocol){
+    var ret = AllexError.call(this,'UNSUPPORTED_PROTOCOL','Protocol '+protocol+' is not supported');
+    ret.transport = 'UnsupportedProtocolError';
+    ret.protocol = protocol;
+    return ret;
+  }
+  lib.inherit(UnsupportedProtocolError,AllexError);
+  return UnsupportedProtocolError;
+}
+
+module.exports = createUnsupportedProtocolError;
+
+
+},{}],158:[function(require,module,exports){
+(function (process){(function (){
+var net = require('net');
+
+function createTransportFactory(lib, TalkerFactory) {
+  'use strict';
+
+  var q = lib.q,
+    talkerFactory = new TalkerFactory(),
+    httpTalkers = new lib.Map(),
+    wsTalkers = new lib.Map(),
+    socketTalkers = new lib.Map();
+
+  if ('undefined' === typeof window) {
+    process.on('exit', destroyAllTalkers);
+  } else {
+    window.onclose = destroyAllTalkers;
+  }
+
+  function destroyAllTalkers() {
+    lib.containerDestroyAll(socketTalkers);
+    socketTalkers.destroy();
+    lib.containerDestroyAll(wsTalkers);
+    wsTalkers.destroy();
+  }
+
+  function TalkerSlot() {
+    this.getMap().add(this.getName(), this);
+  }
+  TalkerSlot.prototype.destroy = function () {
+    this.getMap().remove(this.getName());
+  }
+  TalkerSlot.prototype.getMap = lib.dummyFunc;
+  TalkerSlot.prototype.getName = lib.dummyFunc;
+
+  function HttpTalkerSlot(connectionstring, address, port, defer) {
+    if (!connectionstring) {
+      throw new lib.Error('NO_WS_CONNECTION_STRING');
+    }
+    this.connectionstring = connectionstring;
+    this.defer = defer;
+    TalkerSlot.call(this);
+    this.talker = talkerFactory.newHttpTalker(connectionstring, address, port, defer);
+    this.talker.aboutToDie.attach(this.destroy.bind(this));
+  }
+  HttpTalkerSlot.prototype.destroy = function () {
+    TalkerSlot.prototype.destroy.call(this);
+    this.talker = null;
+    this.defer = null;
+    this.connectionstring = null;
+  };
+  HttpTalkerSlot.prototype.getMap = function () {
+    return httpTalkers;
+  };
+  HttpTalkerSlot.prototype.getName = function () {
+    return this.connectionstring;
+  };
+
+  function WSTalkerSlot(connectionstring, address, port, defer) {
+    if (!connectionstring) {
+      throw new lib.Error('NO_WS_CONNECTION_STRING');
+    }
+    this.connectionstring = connectionstring;
+    this.defer = defer;
+    TalkerSlot.call(this);
+    defer.promise.then(null, this.destroy.bind(this));
+    this.talker = talkerFactory.newWSTalker(connectionstring, address, port, defer);
+    this.talker.aboutToDie.attach(this.destroy.bind(this));
+  }
+  WSTalkerSlot.prototype.destroy = function () {
+    if (!this.connectionstring) {
+      return;
+    }
+    this.talker = null;
+    this.defer = null;
+    TalkerSlot.prototype.destroy.call(this);
+    this.connectionstring = null;
+  };
+  WSTalkerSlot.prototype.getMap = function () {
+    return wsTalkers;
+  };
+  WSTalkerSlot.prototype.getName = function () {
+    return this.connectionstring;
+  };
+
+  function SocketSlot(address, port, defer) {
+    this.address = address;
+    this.port = port;
+    this.onConnectedBound = this.onConnected.bind(this);
+    this.onErrorBound = this.onError.bind(this);
+    this.onClosedBound = this.onClosed.bind(this);
+    this.defer = defer;
+    this.socket = null;
+    this.connect();
+    this.talker = null;
+    TalkerSlot.call(this);
+  }
+  SocketSlot.prototype.destroy = function () {
+    this.talker = null;
+    this.socket = null;
+    this.defer = null;
+    this.onClosedBound = null;
+    this.onErrorBound = null;
+    this.onConnectedBound = null;
+    this.port = null;
+    this.address = null;
+    TalkerSlot.prototype.destroy.call(this);
+  };
+  SocketSlot.prototype.getMap = function () {
+    return socketTalkers;
+  };
+  SocketSlot.prototype.getName = function () {
+    return this.address+':'+this.port;
+  };
+  SocketSlot.prototype.resolve = function () {
+    if (!this.defer) {
+      return;
+    }
+    if (this.talker) {
+      return;
+    }
+    this.talker = talkerFactory.newTcpTalker(this.socket, null, false);
+    this.defer.resolve(this.talker);
+  };
+  SocketSlot.prototype.reject = function (reason) {
+    if (!this.defer) {
+      return;
+    }
+    this.defer.reject(reason);
+    this.destroy();
+  };
+  SocketSlot.prototype.connect = function(){
+    if(this.socket){
+      this.reject(new lib.Error('ALREADY_CONNECTED', 'Already connected to '+this.address+':'+this.port));
+    }
+    if(this.talker){
+      this.reject(new lib.Error('ALREADY_CONNECTED', 'Already connected to '+this.address+':'+this.port));
+    }
+    //console.log('connecting to',this.address,this.port);
+    if(!(this.address)){//&&this.port)){
+      return;
+    }
+    this.socket = new net.Socket();
+    this.socket.on('connect',this.onConnectedBound);
+    this.socket.on('error',this.onErrorBound);
+    this.socket.on('close', this.onClosedBound);
+    if(this.port){
+      this.socket.connect(this.port,this.address);
+    }else{
+      this.socket.connect(this.address);
+    }
+  };
+  SocketSlot.prototype.onError = function(error){
+    if(this.socket){
+      this.socket.removeAllListeners();
+    }
+    this.socket = null;
+    switch(error.code){
+      case 'ENOENT':
+      case 'ENOTFOUND':
+        this.reject(new lib.DestinationError('socket',this.address,this.port));
+        break;
+      case 'ECONNREFUSED':
+        this.reject(new lib.NoServerError('socket',this.address,this.port));
+      default:
+        setTimeout(this.connect.bind(this),100);
+        break;
+    }
+  };
+  SocketSlot.prototype.onClosed = function () {
+    if (this.socket) {
+      this.socket.removeListener('close', this.onClosedBound);
+    }
+    this.destroy();
+  };
+  SocketSlot.prototype.onConnected = function(socket){
+    if (!this.socket) {
+      //wut?
+      console.error('no socket?');
+      return;
+    }
+    this.socket.removeListener('connect', this.onConnectedBound);
+    this.socket.removeListener('error', this.onErrorBound);
+    this.resolve();
+  };
+
+  function talkerchecker (type, address, port, talker) {
+    var _t = type, _a = address, _p = port;
+    type = null;
+    address = null;
+    port = null;
+    if (!(talker && talker.isUsable())) {
+      return factory(_t, _a, _p);
+    }
+    return talker;
+  }
+
+  function factory(type) {
+    var slot, connectionstring, address, port, defer;
+    switch(type) {
+      case 'inproc':
+        return talkerFactory.newInProcTalker(arguments[1]);
+      case 'socket':
+        return talkerFactory.newTcpTalker(arguments[1], arguments[2], arguments[3]);
+      case 'initiatingsocket':
+        address = arguments[1];
+        port = arguments[2];
+        connectionstring = address+':'+port;
+        var slot = socketTalkers.get(connectionstring);
+        if (slot) {
+          if (slot.defer) {
+            return slot.defer.promise.then(
+              talkerchecker.bind(null, type, address, port)
+            );
+          } else {
+            socketTalkers.remove(connectionstring);
+          }
+        }
+        defer = q.defer();
+        slot = new SocketSlot(address, port, defer);
+        return slot.defer.promise;
+      case 'http':
+        connectionstring = arguments[1];
+        address = arguments[2];
+        port = arguments[3];
+        slot = httpTalkers.get(connectionstring);
+        defer = q.defer();
+        if (slot) {
+          return slot.defer.promise;
+        }
+        slot = new HttpTalkerSlot(connectionstring, address, port, defer);
+        return slot.defer.promise;
+      case 'ws':
+        /*
+        return new WSTalker(arguments[1], arguments[2], arguments[3], arguments[4]);
+        */
+        connectionstring = arguments[1];
+        address = arguments[2];
+        port = arguments[3];
+        slot = wsTalkers.get(connectionstring);
+        defer = q.defer();
+        if (slot) {
+          return slot.defer.promise;
+        }
+        slot = new WSTalkerSlot(connectionstring, address, port, defer);
+        return slot.defer.promise;
+        case 'proc':
+          return talkerFactory.newProcessTalker(arguments[1], arguments[2]);
+        case 'externalproc':
+          return talkerFactory.newExternalProcessTalker(arguments[1], arguments[2]);
+        }
+  }
+
+  require('./errors')(lib);
+
+  return factory;
+}
+
+module.exports = createTransportFactory;
+
+}).call(this)}).call(this,require('_process'))
+},{"./errors":154,"_process":355,"net":249}],159:[function(require,module,exports){
+(function (process){(function (){
+function createHttpTalker (lib, TalkerBase, OuterClientBoundTalkerMixin, signalR) {
+  'use strict';
+
+  var qlib = lib.qlib,
+    JobOnDestroyableBase = qlib.JobOnDestroyableBase;
+
+  function HttpTalker(connectionstring, address, port, defer) {
+    TalkerBase.call(this);
+    OuterClientBoundTalkerMixin.call(this, address, port, defer);
+    this.underscorer = this.onSignalRUnderscore.bind(this);
+    this.closer = this.onSignalRClosed.bind(this);
+    this.connectionstring = connectionstring;
+    this.sr = new signalR.HubConnectionBuilder()
+      .withUrl(this.connectionstring)
+      .configureLogging(5) //critical only
+      .build();
+    this.jobs = new qlib.JobCollection();
+    this.setHandlers();
+    this.sr.start({withCredentials: false}).then(
+      defer.resolve.bind(defer, this),
+      this.errorer
+    );
+  };
+  lib.inherit(HttpTalker, TalkerBase);
+  OuterClientBoundTalkerMixin.addMethods(HttpTalker);
+  HttpTalker.prototype.__cleanUp = function(){
+    if (this.jobs) {
+      this.jobs.destroy();
+    }
+    this.jobs = null;
+    this.unSetHandlers();
+    if (this.sr) {
+      this.sr.stop();
+    }
+    this.sr = null;
+    this.connectionstring = null;
+    this.errorer = null;
+    this.closer = null;
+    this.underscorer = null;
+    OuterClientBoundTalkerMixin.prototype.destroy.call(this);
+    TalkerBase.prototype.__cleanUp.call(this);
+  };
+  HttpTalker.prototype.send = function (obj) {
+    return this.jobs.run('.', new SignalRSendingJob(this, obj));
+  };
+
+  HttpTalker.prototype.setHandlers = function () {
+    this.sr.on('_', this.underscorer);
+    this.sr.onclose(this.closer);
+  };
+  HttpTalker.prototype.unSetHandlers = function () {
+    if (!this.sr) {
+      return;
+    }
+    this.sr.off('_', this.underscorer);
+    this.sr.onclose(null); //no way to unset the close handler?
+  };
+
+  HttpTalker.prototype.onSignalRUnderscore = function (oobobj) {
+    //console.log('HttpTalker onIncoming', require('util').inspect(oobobj, {colors:true, depth:7}));
+    this.onIncoming(oobobj);
+  };
+  HttpTalker.prototype.onSignalRClosed = function (error) {
+    if (this.address && this.port) {
+      console.log(process.pid, this.address, this.port, 'HttpTalker closing');
+      //this.destroy(error);
+      this.destroy(new lib.NoServerError('ws',this.address,this.port));
+      return;
+    }
+    this.destroy();
+  };
+
+
+  //jobs
+
+  function SignalRSendingJob (talker, data, defer) {
+    JobOnDestroyableBase.call(this, talker, defer);
+    this.talker = talker;
+    this.data = data;
+  }
+  lib.inherit(SignalRSendingJob, JobOnDestroyableBase);
+  SignalRSendingJob.prototype.destroy = function () {
+    this.data = null;
+    this.talker = null;
+    JobOnDestroyableBase.prototype.destroy.call(this);
+  };
+  SignalRSendingJob.prototype._destroyableOk = function () {
+    return this.destroyable && this.destroyable.sr;
+  };
+  SignalRSendingJob.prototype.go = function () {
+    var ok = this.okToGo();
+    if (!ok.ok) {
+      return ok.val;
+    }
+    //console.log('HttpTalker sending', require('util').inspect(this.data, {colors:true, depth:7}));
+    this.destroyable.sr.send('allexjs', this.data).then(
+			this.onSent.bind(this),
+			this.reject.bind(this)
+    );
+    return ok.val;
+  };
+  SignalRSendingJob.prototype.onSent = function (error) {
+    if (!this.okToProceed()) {
+      console.log('nok to proceed');
+      return;
+    }
+    if (error) {
+      this.reject(error);
+      return;
+    }
+    this.resolve(true);
+  };
+
+
+
+  return HttpTalker;
+
+}
+module.exports = createHttpTalker;
+
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],160:[function(require,module,exports){
+function createTalkerFactory (lib, signalR) {
+  'use strict';
+  var TalkerBase = require('./talkerbasecreator')(lib),
+    PingingTalker = require('./pingingtalkercreator')(lib, TalkerBase),
+    OuterClientBoundTalkerMixin = require('./outerclientboundtalkermixincreator')(lib),
+    InProcTalker = require('./inproc/talkercreator')(lib, TalkerBase),
+    tcpTalkerFactory = require('./socket/factorycreator')(lib, PingingTalker),
+    WSTalker = require('./ws/talkercreator')(lib, PingingTalker, OuterClientBoundTalkerMixin),
+    processTalkerLib = require('./process')(lib, TalkerBase, PingingTalker, tcpTalkerFactory),
+    HttpTalker = require('./http/talkercreator')(lib, TalkerBase, OuterClientBoundTalkerMixin, signalR),
+    ProcessTalker = processTalkerLib.ProcessTalker,
+    ExternalProcessTalker = processTalkerLib.ExternalProcessTalker
+    ;
+
+  function TalkerFactory(){
+  }
+  TalkerFactory.prototype.newInProcTalker = function (gate) {
+    return new InProcTalker(gate);
+  };
+  TalkerFactory.prototype.newProcessTalker = function (jstofork, options) {
+    return new ProcessTalker(jstofork, options);
+  };
+  TalkerFactory.prototype.newExternalProcessTalker = function (jstofork, options) {
+    return new ExternalProcessTalker(jstofork, options);
+  };
+  TalkerFactory.prototype.newTcpTalker = function (socketoraddress, cborport, acceptor) {
+    return tcpTalkerFactory(socketoraddress, cborport, acceptor);
+  };
+  TalkerFactory.prototype.newWSTalker = function (connectionstring, address, port, defer) {
+    return new WSTalker(connectionstring, address, port, defer);
+  };
+  TalkerFactory.prototype.newHttpTalker = function (connectionstring, address, port, defer) {
+    return new HttpTalker(connectionstring, address, port, defer);
+  };
+
+  return TalkerFactory;
+}
+
+module.exports = createTalkerFactory;
+},{"./http/talkercreator":159,"./inproc/talkercreator":161,"./outerclientboundtalkermixincreator":162,"./pingingtalkercreator":163,"./process":165,"./socket/factorycreator":168,"./talkerbasecreator":172,"./ws/talkercreator":173}],161:[function(require,module,exports){
+function createInProcTalker(lib, TalkerBase) {
+  'use strict';
+
+  function InProcTalker(inprocgate) {
+    TalkerBase.call(this);
+    this.gate = inprocgate;
+    this.gateDestroyedListener = null;
+    if (!(this.gate && this.gate.service && this.gate.service.destroyed)) {
+      this.destroy();
+      return;
+    }
+    this.gateDestroyedListener = this.gate.service.destroyed.attach(this.onServiceDown.bind(this));
+  }
+  lib.inherit(InProcTalker, TalkerBase);
+  InProcTalker.prototype.__cleanUp = function () {
+    if (this.gateDestroyedListener) {
+      this.gateDestroyedListener.destroy();
+    }
+    this.gateDestroyedListener = null;
+    this.gate = null;
+    TalkerBase.prototype.__cleanUp.call(this);
+  };
+  InProcTalker.prototype.onServiceDown = function () {
+    if (this.gate) {
+      this.destroy();
+    }
+  };
+  InProcTalker.prototype.send = function (obj) {
+    if (!this.gate) {
+      return;
+    }
+    this.gate.processMessage(obj, this);
+  };
+  InProcTalker.prototype.type = 'inproc';
+
+  return InProcTalker;
+}
+
+module.exports = createInProcTalker;
+
+},{}],162:[function(require,module,exports){
+function createOuterClientBoundTalkerMixin (lib) {
+  function OuterClientBoundTalkerMixin (address, port, defer) {
+    this.address = address;
+    this.port = port;
+    this.defer = defer;
+    this.errorer = this.onBoundClientError.bind(this);
+  }
+  OuterClientBoundTalkerMixin.prototype.destroy = function () {
+    this.errorer = null;
+    this.defer = null;
+    this.port = null;
+    this.address = null;
+  };
+  OuterClientBoundTalkerMixin.prototype.onBoundClientError = function (error) {
+    var err;
+    if (!('code' in error)) {
+      err = new lib.NoServerError('ws',this.address,this.port);
+    } else {
+      switch(error.code){
+        case 'ENOTFOUND':
+          err = new lib.DestinationError('ws',this.address,this.port);
+          break;
+        case 'ECONNREFUSED':
+          err = new lib.NoServerError('ws',this.address,this.port);
+          break;
+        default:
+          //setTimeout(this.connect.bind(this),100);
+          err = error;
+          break;
+      }
+    }
+    if (this.defer) {
+      this.defer.reject(err);
+      this.defer = null;
+    }
+    this.unSetHandlers();
+    this.wsock = null;
+    if (err) {
+      this.destroy(err);
+    } else {
+      this.destroy();
+    }
+  };
+
+  OuterClientBoundTalkerMixin.addMethods = function (klass) {
+    lib.inheritMethods(klass, OuterClientBoundTalkerMixin, [
+      'onBoundClientError'
+    ]);
+  }
+
+  return OuterClientBoundTalkerMixin;
+}
+module.exports = createOuterClientBoundTalkerMixin;
+
+},{}],163:[function(require,module,exports){
+(function (process){(function (){
+function createPingingTalker(lib, TalkerBase) {
+  'use strict';
+
+  var q = lib.q,
+    PING_PERIOD = 10*lib.intervals.Second;
+
+  function pingponginitiator (pt, initiator) {
+    if (!pt) {
+      pt = null;
+      return;
+    }
+    if (initiator) {
+      pt.startNewSelfDestruction();
+      pt.processPong(Date.now()-5);
+      pt = null;
+      return;
+    }
+    pt.processPing();
+    pt = null;
+  }
+  function PingingTalker(initiator) {
+    if ('boolean' !== typeof initiator) {
+      console.trace();
+      process.exit(0);
+      return;
+    }
+    TalkerBase.call(this);
+    this.lastping = null;
+    this.destroyer = this.destroy.bind(this);
+    this.pinger = this.ping.bind(this);
+    this.pingfailer = this.onPingFailed.bind(this);
+    this.pingWaiter = null;
+    this.pingSender = null;
+    lib.runNext(pingponginitiator.bind(null, this, initiator));
+  }
+  lib.inherit(PingingTalker, TalkerBase);
+  PingingTalker.prototype.__cleanUp = function () {
+    if (this.pingSender) {
+      lib.clearTimeout(this.pingSender);
+    }
+    this.pingSender = null;
+    if (this.pingWaiter) {
+      lib.clearTimeout(this.pingWaiter);
+    }
+    this.pingWaiter = null;
+    this.pingfailer = null;
+    this.pinger = null;
+    this.destroyer = null;
+    this.lastping = null;
+    TalkerBase.prototype.__cleanUp.call(this);
+  }
+  PingingTalker.prototype.ping = function () {
+    if (!this.isUsable()) {
+      return;
+    }
+    //console.log(this.id, this.constructor.name, 'pinging with', this.clients.count, 'clients');
+    this.lastping = Date.now();
+    this.send(['?', this.lastping]);
+  };
+  PingingTalker.prototype.processPing = function (ping) {
+    if (this.pingWaiter) {
+      lib.clearTimeout(this.pingWaiter);
+    }
+    this.pingWaiter = lib.runNext(this.pingfailer, PING_PERIOD*2);
+    if (ping) {
+      this.send(['!', ping]);
+    }
+  };
+  PingingTalker.prototype.onPingFailed = function () {
+    console.error(new Date(), 'Ping miss!', this.type);
+    this.destroy();
+  };
+  PingingTalker.prototype.processPong = function (pong) {
+    var lag = Date.now()-pong,
+      next = PING_PERIOD-lag;
+    if (!this.isUsable()) {
+      return;
+    }
+    //console.log(this.id, this.constructor.name, 'got pong with', this.clients.count, 'clients');
+    if (next < 0) {
+      this.ping();
+      return;
+    }
+    this.pingSender = lib.runNext(this.pinger, next);
+  };
+  return PingingTalker;
+}
+
+module.exports = createPingingTalker;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],164:[function(require,module,exports){
+(function (process){(function (){
+var cp = require('child_process');
+var net = require('net');
+var fs = require('fs');
+var Path = require('path');
+var tempPipeDir = require('allex_temppipedirserverruntimelib');
+
+function createProcessTalker(lib, PingingTalker, mylib, tcpTalkerFactory) {
+  'use strict';
+
+  var _spawned = [];
+
+  function removeSpawned (sp) {
+    var spindex = _spawned.indexOf(sp);
+    if (spindex>=0){
+      _spawned.splice(spindex, 1);
+    }
+  }
+
+  function killSpawned() {
+    _spawned.forEach(function (sp) {sp.kill();})
+  }
+
+  process.on('uncaughtException', killSpawned);
+  process.on('SIGTERM', killSpawned);
+  process.on('SIGINT', killSpawned);
+
+  function ExternalProcessTalker(jstofork, options) {
+    PingingTalker.call(this, true);
+    mylib.ProcessTalkerMixin.call(this, jstofork, options);
+    this.childProcSocket = null;
+    this.childProcTalker = null;
+  }
+  lib.inherit(ExternalProcessTalker, PingingTalker);
+  mylib.ProcessTalkerMixin.addMethods(ExternalProcessTalker);
+  ExternalProcessTalker.prototype.__cleanUp = function () {
+    this.childProcSocket = null;    
+    if (this.childProcTalker){
+      this.childProcTalker.destroy();
+    }
+    this.childProcTalker = null;
+    mylib.ProcessTalkerMixin.prototype.destroy.call(this);
+    PingingTalker.prototype.__cleanUp.call(this);
+  };
+  ExternalProcessTalker.prototype.onIncoming = function (message) {
+    if (!mylib.ProcessTalkerMixin.prototype.onIncoming.call(this, message)) {
+      return;
+    }
+    PingingTalker.prototype.onIncoming.call(this, message);
+  };
+  ExternalProcessTalker.prototype.cleanProcListeners = function () {
+    if (!this.proc) return;
+    if (this.destroyer) {
+      this.proc.removeListener('exit', this.destroyer);
+    }
+    removeSpawned(this.proc);
+    this.proc.kill();
+  };
+  ExternalProcessTalker.prototype.makeUpOnCreationArgsFromEnvironment = function (args, env){
+    var spawn = env.ALLEX_SPAWN;
+    var modulename = spawn.modulename, debug = spawn.debug;
+    var path = Path.join(Path.dirname(require.resolve(modulename)), 'dotnet', 'bin', (debug ? 'Debug' : 'Release'), 'netcoreapp3.1', modulename+'.dll');
+    args[0] = path;
+  };
+  ExternalProcessTalker.prototype.additionalMakeupOnExecArgv = function (execargs, options) {
+  };
+  ExternalProcessTalker.prototype.doTheCreation = function (jstofork, args, forkoptions) {
+    forkoptions.stdio = 'inherit';
+    forkoptions.detached = false;
+    this.proc = cp.spawn(jstofork, args, forkoptions);
+    _spawned.push(this.proc);
+    this.proc.on('exit', this.destroyer);
+    //this.proc.stdout.on('data', function(data) {console.log('incoming data:', data.toString());});
+    //this.proc.stderr.on('data', function(data) {console.log('incoming error:', data.toString());});
+    //console.log('Spawned child process pid', this.proc.pid);
+    this.tryOpenChildPipe();
+  };
+  ExternalProcessTalker.prototype.tryToSendToProcess = function (data) {
+    if (!this.childProcTalker) {
+      return false;
+    }
+    //console.log('send to external', data);
+    this.childProcTalker.send(data);
+    //console.log('successfully');
+    this.dump();
+    //this.proc.send(data);
+    return true;
+  };
+  ExternalProcessTalker.prototype.dump = function () {
+    this.procq.drain(this.drainer.bind(this));
+  };
+  ExternalProcessTalker.prototype.drainer = function (item) {
+    //console.log('drain to external', item);
+    this.childProcTalker.send(item);
+  };
+  ExternalProcessTalker.prototype.tryOpenChildPipe = function () {
+    if (!(this.proc && this.proc.pid)) {
+      lib.runNext(this.tryOpenChildPipe.bind(this), 100);
+      return;
+    }
+    var pipename = Path.join(tempPipeDir(),'allexprocess.'+this.proc.pid);
+    try {
+      fs.accessSync(pipename, fs.constants.R_OK | fs.constants.W_OK);
+    } catch(e) {
+      //console.log('error for pipe', pipename, e);
+      lib.runNext(this.tryOpenChildPipe.bind(this), 100);
+      return;
+    }
+    try {
+      this.childProcSocket = net.createConnection(pipename, this.onChildPipeOpen.bind(this));
+    } catch (e) {
+      console.error(e);
+      lib.runNext(this.tryOpenChildPipe.bind(this), 100);
+      return;
+    }
+  };
+  ExternalProcessTalker.prototype.onChildPipeOpen = function () {
+    //this.processPong(Date.now() - 5);
+    this.childProcTalker = tcpTalkerFactory(this.childProcSocket, this.onChildTalker.bind(this), false);
+    this.childProcTalker.clients = null; //to disable SelfDestructor
+    this.established = true;
+    this.dump();
+  };
+  ExternalProcessTalker.prototype.onChildTalker = function (talker, item) {
+    //console.log('ParallelProcess sez', item);
+    this.onIncoming(item);
+  };
+
+  mylib.ExternalProcessTalker = ExternalProcessTalker;
+}
+
+module.exports = createProcessTalker;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355,"allex_temppipedirserverruntimelib":149,"child_process":249,"fs":249,"net":249,"path":348}],165:[function(require,module,exports){
+function createProcessTalkerLib (lib, TalkerBase, PingingTalker, tcpTalkerFactory) {
+  'use strict';
+
+  var mylib = { };
+
+  require('./talkermixincreator.js')(lib, TalkerBase, mylib);
+  require('./talkercreator')(lib, TalkerBase, mylib);
+  require('./externaltalkercreator')(lib, PingingTalker, mylib, tcpTalkerFactory);
+
+  return mylib;
+}
+module.exports = createProcessTalkerLib;
+
+},{"./externaltalkercreator":164,"./talkercreator":166,"./talkermixincreator.js":167}],166:[function(require,module,exports){
+var cp = require('child_process');
+
+function createProcessTalker(lib, TalkerBase, mylib) {
+  'use strict';
+
+  function ForkedProcessTalker(jstofork, options) {
+    TalkerBase.call(this);
+    mylib.ProcessTalkerMixin.call(this, jstofork, options);
+  }
+  lib.inherit(ForkedProcessTalker, TalkerBase);
+  mylib.ProcessTalkerMixin.addMethods(ForkedProcessTalker);
+  ForkedProcessTalker.prototype.__cleanUp = function () {
+    mylib.ProcessTalkerMixin.prototype.destroy.call(this);
+    TalkerBase.prototype.__cleanUp.call(this);
+  };
+  ForkedProcessTalker.prototype.onIncoming = function (message) {
+    if (!mylib.ProcessTalkerMixin.prototype.onIncoming.call(this, message)) {
+      return;
+    }
+    TalkerBase.prototype.onIncoming.call(this, message);
+  };
+  ForkedProcessTalker.prototype.cleanProcListeners = function () {
+    if (this.destroyer) {
+      this.proc.removeListener('exit', this.destroyer);
+    }
+    if (this.incomer) {
+      this.proc.removeListener('message', this.incomer);
+    }
+  };
+  ForkedProcessTalker.prototype.additionalMakeupOnExecArgv = function (execargs, options) {
+    if (!options) return;
+    if (options.debug_brk) {
+      if (lib.isString(options.debug_brk)) {
+        execargs.push('--inspect-brk=' + options.debug_brk);
+      } else {
+        execargs.push('--inspect-brk');
+      }
+    } else if (options.debug) {
+      execargs.push('--inspect');
+    } else if (options.prof) {
+      execargs.push('--prof');
+    }
+  };
+  ForkedProcessTalker.prototype.doTheCreation = function (jstofork, args, forkoptions) {
+    this.proc = cp.fork(jstofork, args, forkoptions);
+    this.proc.on('message', this.incomer);
+    this.proc.on('exit', this.destroyer);
+  };
+  ForkedProcessTalker.prototype.tryToSendToProcess = function (data) {
+    if (!this.proc.connected) {
+      return false;
+    }
+    //console.log('successfully');
+    this.dump();
+    this.proc.send(data);
+    return true;
+  };
+  ForkedProcessTalker.prototype.dump = function () {
+    this.procq.drain(this.proc.send.bind(this.proc));
+    //this.procq.drain(this.drainer.bind(this));
+  };
+  ForkedProcessTalker.prototype.drainer = function (item) {
+    console.log('need to send', arguments);
+    this.proc.send(item);
+  };
+
+  mylib.ProcessTalker = ForkedProcessTalker;
+}
+
+module.exports = createProcessTalker;
+
+},{"child_process":249}],167:[function(require,module,exports){
+(function (process){(function (){
+const { timeStamp } = require('console');
+var os = require('os');
+
+function createProcessTalkerBase(lib, TalkerBase, mylib) {
+  'use strict';
+
+  var not2json = {
+    'string': true,
+    'number': true,
+    'boolean': true
+  };
+  function setEnvVariable(env, variable, variablename) {
+    var tov = typeof variable;
+    //console.log(variable, 'is of type', tov);
+    if (tov in not2json) {
+      env[variablename] = variable;
+    } else if (tov === 'function') {
+      //nothing
+    } else {
+      env[variablename] = JSON.stringify(variable);
+    }
+  }
+
+  function ProcessTalkerMixin(jstocreate, options) {
+    this.destroyer = this.onProcessExit.bind(this);
+    this.incomer = this.onIncoming.bind(this);
+    this.proc = null;
+    this.procq = new lib.Fifo();
+    this.established = false;
+    this.prepareCreation(jstocreate, options);
+  }
+  ProcessTalkerMixin.prototype.destroy = function () {
+    this.established = null;
+    if (this.procq) {
+      this.procq.destroy();
+    }
+    this.procq = null;
+    this.cleanProcListeners();
+    this.proc = null;
+    this.incomer = null;
+    this.destroyer = null;
+  };
+  ProcessTalkerMixin.prototype.onProcessExit = function (exitcode) {
+    this.destroy(new lib.Error('PROCESS_DIED', exitcode));
+  };
+  ProcessTalkerMixin.prototype.prepareCreation = function (jstocreate, options) {
+    if (os.type() === 'Windows_NT'){
+      jstocreate = jstocreate.replace(/\//g,'\\');
+      if (jstocreate.match(/^[^\\]\\/)){
+        jstocreate = jstocreate[0]+':'+jstocreate.substring(1)
+      }
+    }
+    var args=[],
+      env = {parentProcessID: process.pid},
+      createoptions = {env: env},
+      ea = [];
+    lib.traverse(process.env, setEnvVariable.bind(null, env));
+    if (options) {
+      var oe = null;
+      if (options.env) {
+        try {
+          oe = JSON.parse(options.env);
+          lib.traverse(oe, setEnvVariable.bind(null, env));
+          this.makeUpOnCreationArgsFromEnvironment(args, oe);
+        } catch (ignore) {}
+      }
+      this.additionalMakeupOnExecArgv(ea, oe ? oe.ALLEX_SPAWN : null);
+    }
+    createoptions.execArgv=ea;
+    this.doTheCreation(jstocreate, args, createoptions);
+  };
+  ProcessTalkerMixin.prototype.send = function (data) {
+    //console.log('ChildProcessClient sending', data);
+    if (!this.established) {
+      //console.log('unsuccessfully');
+      this.procq.push(data);
+      return;
+    }
+    if (!this.tryToSendToProcess(data)) {
+      this.procq.push(data);
+    }
+  };
+  ProcessTalkerMixin.prototype.onIncoming = function (message) {
+    var e, es, ec;
+    if (message.uncaughtException) {
+      es = message.uncaughtException.message;
+      ec = message.uncaughtException.code;
+      if (es.match('Cannot find module')) {
+        e = new Error(es);
+        e.code = 'MODULE_NOT_FOUND';
+      } else {
+        if (ec) {
+          e = new lib.Error(ec, es);
+        } else {
+          e = new Error(es);
+        }
+      }
+      this.destroy(e);
+      return false;
+    }
+    if (!this.established) {
+      //console.log(this.proc.pid, 'ChildProcessClient', message);
+      this.established = this.proc && (parseInt(message.child_init) === this.proc.pid);
+      //console.log('established', this.established, '(', this.proc.pid, ')');
+      if (this.established) {
+        this.dump();
+      }
+      return false;
+    }
+    return true;
+  };
+  ProcessTalkerMixin.prototype.cleanProcListeners = function () {};
+  ProcessTalkerMixin.prototype.makeUpOnCreationArgsFromEnvironment = function (args, env) {};
+  ProcessTalkerMixin.prototype.additionalMakeupOnExecArgv = function (execargs, options) {};
+  ProcessTalkerMixin.prototype.doTheCreation = function (jstocreate, args, createoptions) {};
+  ProcessTalkerMixin.prototype.tryToSendToProcess = function (data) {};
+
+  ProcessTalkerMixin.addMethods = function (klass) {
+    lib.inheritMethods(klass, ProcessTalkerMixin,
+      'onProcessExit',
+      'prepareCreation',
+      'send',
+      'cleanProcListeners',
+      'makeUpOnCreationArgsFromEnvironment',
+      'additionalMakeupOnExecArgv',
+      'doTheCreation',
+      'tryToSendToProcess'
+    );
+  };
+
+  mylib.ProcessTalkerMixin = ProcessTalkerMixin;
+}
+module.exports = createProcessTalkerBase;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355,"console":255,"os":342}],168:[function(require,module,exports){
+(function (process){(function (){
+function createSocketTalkerFactory(lib, TalkerBase) {
+  'use strict';
+  var SocketTalkerBase = require('./talkercreator')(lib, TalkerBase),
+    InetTalker = require('./inettalkercreator')(lib, SocketTalkerBase),
+    UnixTalker = require('./unixtalkercreator')(lib, SocketTalkerBase);
+
+  function factory(socket, cb, acceptor) {
+    if (!(acceptor === true || acceptor === false)) {
+      console.trace();
+      process.exit(0);
+    }
+    if (!socket.remoteAddress) {
+      return new UnixTalker(socket, cb, acceptor);
+    } else {
+      return new InetTalker(socket, cb, acceptor);
+    }
+  }
+
+  return factory;
+}
+
+module.exports = createSocketTalkerFactory;
+
+}).call(this)}).call(this,require('_process'))
+},{"./inettalkercreator":169,"./talkercreator":170,"./unixtalkercreator":171,"_process":355}],169:[function(require,module,exports){
+function createInetTalker(lib, PingingTalker) {
+  'use strict';
+  function InetTalker(socket, cb, acceptor) {
+    PingingTalker.call(this, socket, cb, acceptor);
+    this.endSent = false;
+    this.ender = this.onOtherSideClosed.bind(this);
+    if (!acceptor) {
+      this.socket.setKeepAlive(true, this.KEEP_ALIVE_INTERVAL);
+    }
+    socket.on('end',this.ender);
+  }
+  lib.inherit(InetTalker, PingingTalker);
+  InetTalker.prototype.__cleanUp = function () {
+    this.endSent = false;
+    PingingTalker.prototype.__cleanUp.call(this);
+  };
+  InetTalker.prototype.detachFromSocket = function () {
+    if (this.socket) {
+      this.socket.removeListener('end',this.ender);
+    }
+    this.ender = null;
+    PingingTalker.prototype.detachFromSocket.call(this);
+  };
+  InetTalker.prototype.disposeOfSocket = function () {
+    if (this.socket && this.endSent === false) {
+      this.endSent = true;
+      this.log('will dispose of the socket on', this.socket.address());
+      this.socket.end();
+    }
+  };
+  InetTalker.prototype.onOtherSideClosed = function () {
+    this.log('onOtherSideClosed');
+    this.socket.destroy();
+  };
+  InetTalker.prototype.subType = 'inet';
+
+  return InetTalker;
+}
+
+module.exports = createInetTalker;
+
+},{}],170:[function(require,module,exports){
+(function (Buffer){(function (){
+function dump(obj){
+  return require('util').inspect(obj,{depth:null});
+}
+function createTalker(lib, PingingTalker){
+  'use strict';
+  var Fifo = lib.Fifo, StringBuffer = lib.StringBuffer;
+  function Talker(socket,cb,acceptor){
+    PingingTalker.call(this, !acceptor);
+    this.lenBuf = new Buffer(4);
+    this.lenBufread = 0;
+    this.bytesToRead = -1;
+    this.dataRead = '';
+    this.sendingQueue = '';
+    this.sending = false;
+    this.sendingBuffs = new Fifo();
+    this.dataCursor = 0;
+    this.incomingData = new Fifo();
+    this.currentData = null;
+    this.acceptor = acceptor;
+    this.socket = socket;
+    this.dataHandler = this.onData.bind(this);
+    this.drainHandler = this.sendMore.bind(this);
+    this.invalidator = this.onSocketUnusable.bind(this);
+    this.errorer = this.onSocketError.bind(this);
+    this.incomingDispatcher = this.onIncomingDispatcher.bind(this);
+    this.sendingBuffsDrainerBound = this.sendingBuffsDrainer.bind(this);
+    this.processDataBound = this.processData.bind(this);
+    this.socket.setNoDelay(true);
+    //if (acceptor) {
+      this.socket.setTimeout(5*this.KEEP_ALIVE_INTERVAL);
+    //}
+    socket.on('data',this.dataHandler);
+    socket.on('drain',this.drainHandler);
+    socket.on('error',this.errorer);
+    socket.on('close',this.invalidator);
+    this.cb = cb;
+    //this.log('new SocketTalker', acceptor);
+  };
+  lib.inherit(Talker,PingingTalker);
+  Talker.prototype.__cleanUp = function(){
+    //this.log('dying');
+    this.cb = null;
+    this.detachFromSocket();
+    this.processDataBound = null;
+    this.sendingBuffsDrainerBound = null;
+    this.incomingDispatcher = null;
+    this.errorer = null;
+    this.invalidator = null;
+    this.drainHandler = null;
+    this.dataHandler = null;
+    this.currentData = null;
+    if(this.incomingData){
+      this.incomingData.destroy();
+    }
+    this.incomingData = null;
+    this.acceptor = null;
+    this.dataCursor = null;
+    if(this.sendingBuffs){
+      this.sendingBuffs.destroy();
+    }
+    this.sendingBuffs = null;
+    this.sending = null;
+    /*
+    if(this.sendingQueue){
+      this.sendingQueue.destroy();
+    }
+    */
+    this.sendingQueue = null;
+    this.dataRead = null;
+    this.bytesToRead = null;
+    this.lenBufread = null;
+    this.lenBuf = null;
+    PingingTalker.prototype.__cleanUp.call(this);
+  };
+  Talker.prototype.dyingCondition = function () {
+    if (this.socket) {
+      if (!(this.socket.writable && this.socket.readable)) {
+        return true;
+      }
+    }
+    if (this.sendingQueue !== null && this.sendingBuffs && this.sendingQueue.length < 1 && this.sendingBuffs.length < 1) {
+      //this.log('disposeOfSocket');
+      this.disposeOfSocket();
+    }
+    if (this.socket) {
+      //this.log('cannot die bc of socket');
+      return false;
+    }
+    return PingingTalker.prototype.dyingCondition.call(this);
+  };
+  Talker.prototype.isUsable = function () {
+    if (!PingingTalker.prototype.isUsable.call(this)) {
+      return false;
+    }
+    if (!this.socket) {
+      return false;
+    }
+    if (!this.socket.readable) {
+      return false;
+    }
+    if (!this.socket.writable) {
+      return false;
+    }
+    return true;
+  };
+  Talker.prototype.detachFromSocket = function () {
+    if(this.socket){
+      //this.log('detaching from socket');
+      //console.log('removing listeners', this.destroyed.collection.length, 'my listeners');
+      this.socket.removeListener('data',this.dataHandler);
+      this.socket.removeListener('drain',this.drainHandler);
+      this.socket.removeListener('error',this.errorer);
+      this.socket.removeListener('close',this.invalidator);
+    }
+    this.socket = null;
+    this.errorer = null;
+    this.invalidator = null;
+    this.dataHandler = null;
+    this.drainHandler = null;
+  };
+  Talker.prototype.onSocketError = function (error) {
+    //this.log('onSocketError', error);
+    this.onSocketUnusable(error);
+  };
+  Talker.prototype.onSocketUnusable = function () {
+    //console.log('onSocketUnusable', this.destroyed.collection.length, 'my listeners', arguments);
+    //this.log('socket down', --_count);
+    var s = this.socket;
+    this.detachFromSocket();
+    if (s) {
+      //console.trace();
+      //console.log(this.id, this.constructor.name, this.acceptor ? 'acceptor':'initiator', 'destroying socket');
+      s.destroy();
+    }
+    this.destroy();
+  };
+  Talker.prototype.handleDataRead = function(){
+    var items, eq, dr;
+    if(!this.incomingDispatcher) {
+      return;
+    }
+    if(this.dataRead){
+      dr = this.dataRead;
+      this.dataRead = '';
+      StringBuffer.consumeString(dr, this.incomingDispatcher, true);
+    }
+    this.processData(this.currentData,this.dataCursor);
+  };
+  Talker.prototype._internalSend = function(buf){
+    if(!this.socket){
+      //console.log(this.__id,'got out because there is no socket');
+      return;
+    }
+    if(!this.sendingQueue.length){
+      //console.log(this.__id,'got out because there is nothing to send');
+      return;
+    }
+    if(this.sending){
+      //console.log(this.__id,'got out because I am already sending');
+      return;
+    }
+    var sq = this.sendingQueue;
+    this.sendingQueue = '';
+    this.bufferize(sq);
+    this.sending = true;
+    this.sendMore();
+  };
+  Talker.prototype.onIncomingDispatcher = function (item) {
+    if (!(lib.isArray(item) && item.length>0)) {
+      return;
+    }
+    if (this.cb) {
+      this.cb(this, item);
+    } else {
+      this.onIncoming(item);
+    }
+  };
+  Talker.prototype.bufferize = function(sq){
+    /*
+    var sqblen = Buffer.byteLength(sq, 'utf8'),
+      sqb = new Buffer(sqblen+4);
+    sqb.write(sq, 4, sqblen, 'utf8');
+    sqb.writeUInt32LE(sqblen,0);
+    this.sendingBuffs.push(sqb);
+    */
+    var sqblen = Buffer.byteLength(sq, 'utf8'),
+        sqlb = Buffer.allocUnsafe(4);
+    sqlb.writeUInt32LE(sqblen, 0);
+    this.sendingBuffs.push(sqlb);
+    this.sendingBuffs.push(sq);
+  }
+  Talker.prototype.send = function(obj){
+    if(!lib.isString(this.sendingQueue)){
+      //this.log('rejecting',dump(obj));
+      return;
+    }
+    if (this.sendingQueue.length) {
+      this.sendingQueue += String.fromCharCode(0);
+    }
+    this.sendingQueue += JSON.stringify(obj);
+    this._internalSend();
+  };
+  Talker.prototype.sendingBuffsDrainer = function (b) {
+    this.sendingLength = b.length;
+    //console.log('writing',b.toString());
+    //console.log('Talker', this.id, 'writing');
+    if (lib.isString(b)) {
+      if (this.socket.write(b, 'utf8')){
+        this.sendMore();
+      }
+    } else {
+      if(this.socket.write(b)){
+        this.sendMore();
+      }
+    }
+  };
+  Talker.prototype.sendMore = function(){
+    if(!this.sendingBuffs){
+      //console.log('cannot sendMore, no sendingBuffs');
+      return;
+    }
+    if(!this.sendingBuffs.length){
+      //console.log('sendingBuffs are empty');
+      this.sending = false;
+      this.maybeDie();
+    }else{
+      if(this.socket && this.socket.writable && this.sendingBuffsDrainerBound){
+        this.sendingBuffs.pop(this.sendingBuffsDrainerBound);
+      }else{
+        //console.log('not writing, socket',this.socket,'is not writable');
+      }
+    }
+    this._internalSend();
+  };
+
+  Talker.prototype.onData = function (data) {
+    this.processData(data);
+  };
+  Talker.prototype.processData = function(data,offset){
+    if(!this.socket){return;}
+    var i=(offset||0);
+    if((this.currentData && data!==this.currentData) || (i!==this.dataCursor)){
+      //console.log(i,'<>',this.dataCursor);
+      this.incomingData.push(data);
+      return;
+    }
+    this.currentData = data;
+    //console.log('data',data.length,'long, reading from',i);
+    for(; (this.bytesToRead<0)&&(i<data.length)&&(this.lenBufread<4); i++,this.lenBufread++){
+      this.lenBuf[this.lenBufread] = data[i];
+      //console.log(this.lenBuf);
+    }
+    if(this.bytesToRead<0){
+      if(this.lenBufread!==4){
+        this.currentData = null;
+        this.dataCursor=0;
+        if(this.incomingData.length){
+          this.processData(this.incomingData.shift());
+        }
+        this.maybeDie();
+        return;
+      }
+      this.bytesToRead = this.lenBuf.readUInt32LE(0);
+    }else{
+      //console.log('still',this.bytesToRead);
+    }
+    //console.log('should read',this.bytesToRead,'bytes');
+    var canread = (data.length-i);
+    if(canread>this.bytesToRead){
+      canread=this.bytesToRead;
+    }
+    this.dataRead+=data.toString('utf8',i,i+canread);
+    this.bytesToRead-=canread;
+    i+=canread;
+    this.dataCursor = i;
+    if(this.bytesToRead===0){
+      this.bytesToRead=-1;
+      this.lenBufread=0;
+      this.handleDataRead();
+      //this.unzip.end();
+    }else{
+      //console.log('at',i,'data is',data.length,'long, now what?');
+      if(i===data.length){
+        this.currentData = null;
+        this.dataCursor=0;
+        if(this.incomingData.length){
+          this.incomingData.pop(this.processDataBound);
+        }
+      }else{
+        this.processData(data,i);
+      }
+    }
+  };
+    /*
+  Talker.prototype.log = function () {
+    var args = Array.prototype.slice.call(arguments, 0);
+    args.unshift(this.id);
+    args.unshift(this.subType);
+    args.unshift(this.acceptor ? 'acceptor' : 'initiator');
+    args.unshift(process.pid+'');
+    console.log.apply(console, args);
+  };
+    */
+  Talker.prototype.type = 'socket';
+  Talker.prototype.KEEP_ALIVE_INTERVAL = 1*lib.intervals.Second;
+  return Talker;
+}
+
+module.exports = createTalker;
+
+}).call(this)}).call(this,require("buffer").Buffer)
+},{"buffer":251,"util":402}],171:[function(require,module,exports){
+function createUnixTalker(lib, PingingTalker) {
+  'use strict';
+  function UnixTalker(socket, cb, acceptor) {
+    PingingTalker.call(this, socket, cb, acceptor);
+    this.endSent = false;
+  }
+  lib.inherit(UnixTalker, PingingTalker);
+  UnixTalker.prototype.__cleanUp = function () {
+    this.endSent = null;
+    PingingTalker.prototype.__cleanUp.call(this);
+  };
+  UnixTalker.prototype.disposeOfSocket = function () {
+    if (this.socket) {
+      this.socket.end();
+    }
+  };
+  UnixTalker.prototype.parsePDU = function (result, item) {
+    if (lib.isString(item) && item === '-') {
+      if (this.invalidator) {
+        this.invalidator();
+      }
+      return result;
+    }
+    return PingingTalker.prototype.parsePDU.call(this, result, item);
+  };
+  UnixTalker.prototype.detachFromSocket = function () {
+    if (this.socket && this.socket.writable) {
+      if (this.endSent === false) {
+        this.endSent = true;
+        this.send('-');
+      }
+    }
+    PingingTalker.prototype.detachFromSocket.call(this);
+  };
+  UnixTalker.prototype.subType = 'unix';
+  return UnixTalker;
+}
+
+module.exports = createUnixTalker;
+
+},{}],172:[function(require,module,exports){
+(function (process){(function (){
+function createTalkerBase(lib) {
+  'use strict';
+
+  var q = lib.q,
+    PING_PERIOD = 10*lib.intervals.Second;
+
+  function TalkerDestructor (talker) {
+    this.talker = talker;
+    this.counter = 0;
+    this.check();
+  }
+  TalkerDestructor.prototype.destroy = function () {
+    this.counter = null;
+    this.talker = null;
+  };
+  TalkerDestructor.prototype.check = function () {
+    if (!this.talker) {
+      return;
+    }
+    if (!this.talker.clients) {
+      return;
+    }
+    if (this.talker.clients.count>0) {
+      this.destroy();
+      return;
+    }
+    this.counter++;
+    if (this.counter>2) {
+      //console.log('TalkerDestructor destroying', this.talker.id);
+      this.talker.destroy();
+      this.destroy();
+      return;
+    }
+    //console.log('TalkerDestructor destroying NOT', this.talker.id, 'because counter', this.counter);
+    lib.runNext(this.check.bind(this), PING_PERIOD);
+  };
+  var _id = 0;
+  function TalkerBase() {
+    /*
+    this.id = process.pid+'_'+(++_id);
+    //console.trace();
+    console.log('new', this.constructor.name, this.id);
+    this.logEnabled = false;
+    */
+    lib.ComplexDestroyable.call(this);
+    this.clients = new lib.Map();
+    this.pendingDefers = new lib.DeferMap();
+    this.futureOOBs = new lib.Map();
+    this.destructor = null;
+  }
+  lib.inherit(TalkerBase, lib.ComplexDestroyable);
+  TalkerBase.prototype.__cleanUp = function () {
+    var futures = this.futureOOBs, pendingDefers = this.pendingDefers, clients = this.clients; 
+    this.futureOOBs = null;
+    this.pendingDefers = null;
+    this.clients = null;
+    if (this.pingWaiter) {
+      lib.clearTimeout(this.pingWaiter);
+    }
+    if (futures) {
+      lib.containerDestroyAll(futures);
+      futures.destroy();
+    }
+    if (pendingDefers) {
+      pendingDefers.destroy();
+    }
+    if (clients) {
+      lib.containerDestroyAll(clients);
+      clients.destroy();
+    }
+    lib.ComplexDestroyable.prototype.__cleanUp.call(this);
+  };
+  function deathTeller(exception, client, session) {
+    /*
+    if (!client.takeExternalException) {
+      client.onOOBData([session, '-', true]);
+    }
+    */
+    client.takeExternalException(exception);
+  }
+  TalkerBase.prototype.startTheDyingProcedure = function (exception) {
+    if (this.clients) {
+      this.clients.traverse(deathTeller.bind(null, exception));
+    }
+    exception = null;
+  };
+  /*
+  function sessionprinter(client, session) {
+    console.log(session);
+  }
+  */
+  TalkerBase.prototype.dyingCondition = function () {
+    if (!this.clients) {
+      return true;
+    }
+    //console.log('TalkerBase', this.id, this.clients.count > 0 ? 'cannot' : 'can', 'die', this.clients.count);
+    //this.clients.traverse(sessionprinter);
+    if (this.clients.count < 1) {
+      this.log(this.id, process.pid, 'can die', this.clients.count);
+    }
+    return this.clients.count < 1;
+  };
+  TalkerBase.prototype.isUsable = function () {
+    return !!this.clients;
+  };
+  TalkerBase.prototype.add = function (client) {
+    if (this.__dying) {
+      console.error('already dying, cannot add more Clients');
+      if (this.__dyingException) {
+        return q.reject(this.__dyingException);
+      } else {
+        return q(null);
+      }
+    }
+    if (!client.identity) {
+      return q(null);
+    }
+    var cid = lib.uid();
+    client.identity.talkerid = cid;
+    this.clients.add(cid, client);
+    if (this.destructor) {
+      this.destructor.destroy();
+    }
+    this.destructor = null;
+    //console.log(this.id, 'after add has', this.clients.count, 'clients');
+    this.log(this.id, process.pid, 'adding', cid, this.clients.count, this.clients.get(cid) ? 'ok' : 'nok');
+    return this.transfer(client, null, true).then(
+      this.onClientIntroduced.bind(this,cid)
+    );
+  };
+  TalkerBase.prototype.remove = function (client) {
+    if (!this.clients) {
+      return;
+    }
+    if (!client.identity.talkerid) {
+      return;
+    }
+    var c = this.clients.remove(client.identity.talkerid);
+    //console.log(this.id, 'after remove has', this.clients.count, 'clients');
+    if (!c) {
+      console.trace();
+      console.error(process.pid, 'nothing on', this.id, 'for', client.identity.talkerid);
+      console.error(this.clients.count, 'current clients');
+      console.error(client);
+    }
+    this.maybeDie();
+    this.startNewSelfDestruction();
+  };
+  TalkerBase.prototype.startNewSelfDestruction = function () {
+    if (!(this.destructor && this.destructor.talker === this)) {
+      this.destructor = new TalkerDestructor(this);
+    }/* else {
+      console.log('did NOT start new TalkerDestructor because I already have', this.destructor);
+    }*/
+  };
+  TalkerBase.prototype.onClientIntroduced = function (cid, introduce) {
+    var c, future;
+    if (!this.clients) {
+      return;
+    }
+    if (introduce && introduce.session) {
+      c = this.clients.remove(cid);
+      if (c) {
+        future = this.futureOOBs.remove(introduce.session);
+        c.identity.talkerid = introduce.session;
+        this.clients.add(introduce.session, c);
+        if (future) {
+          future.drain(c.onOOBData.bind(c));
+          c = null;
+          future.destroy();
+        }
+      } else {
+        console.error('no client for', cid, '?');
+      }
+      return introduce;//q(introduce);
+    } else {
+      c = this.clients.get(cid);
+      if (c) {
+        c.onOOBData([cid, '-', true]);
+      }
+    }
+  };
+  TalkerBase.prototype.transfer = function(client, content, introduce){
+    var did = lib.uid(),
+      d = this.pendingDefers.defer(did),
+      tia = client.identity.toIntroduceArray();
+    if (introduce) {
+      //console.log('+++', did, 'introduce');
+      this.send([did, tia]);
+    } else {
+      /*
+      try {
+        //console.log('+++', did, JSON.stringify(content), 'from', tia);
+      }
+      catch (e) {
+        //console.log('+++', did, 'some internal object');
+      }
+      //this.reportDefers(did);
+      */
+      this.send([did, tia, content]);
+    }
+    return d.promise;
+  };
+  TalkerBase.prototype.onIncoming = function(incoming){
+    //console.log('onIncoming', incoming);
+    var oob, oobsession, client, future, clientid;
+    if (!(this.pendingDefers && this.clients)) {
+      return;
+    }
+    if(!lib.isArray(incoming)){
+      console.log(this.type, 'rejecting', incoming);
+      return;
+    }
+    if (incoming[0] === '?') {
+      console.log(incoming);
+    }
+    switch(incoming[0]) {
+      case 'r': 
+        if (incoming[1] === '?') {
+          console.trace();
+          console.log(process.pid, this.subType, 'wtf?', incoming);
+        }
+        var pdc;
+        if (incoming[2] === 'dead') {
+          pdc = this.pendingDefers._map.count;
+        }
+        //console.log('---', incoming[1]);
+        this.pendingDefers.resolve(incoming[1], incoming[2]);
+        /*
+        this.reportDefers('after resolve '+incoming[1]);
+        if (incoming[2] === 'dead' && this.pendingDefers._map.count !== pdc-1) {
+          console.log('Defer', incoming[1], 'was not resolved');
+          process.exit(1);
+        }
+        */
+        break;
+      case 'e':
+        //console.log('---', incoming[1]);
+        this.pendingDefers.reject(incoming[1], incoming[2]);
+        //this.reportDefers('after reject '+incoming[1]);
+        break;
+      case 'n':
+        this.pendingDefers.notify(incoming[1], incoming[2]);
+        break;
+      case 'oob':
+        oob = incoming[1];
+        oobsession = oob[0];//oob['.'];
+        client = this.clients.get(oobsession);
+        if (client) {
+          if (client.identity.talkerid !== oobsession) {
+            console.error(client.identity.talkerid, '<>', oobsession, '?');
+          }
+          client.onOOBData(oob);
+        } else {
+          future = this.futureOOBs.get(oobsession);
+          if (!future) {
+            future = new lib.Fifo();
+            this.futureOOBs.add(oobsession, future);
+          }
+          future.push(oob);
+        }
+        break;
+      case '?':
+        console.log('pong?', incoming);
+        this.send(['!', incoming[1]]);
+        break;
+      case '!':
+        this.processPong(incoming[1]);
+        break;
+      case 'f':
+        //console.log('should forget', incoming[1]);
+        clientid = incoming[1] && incoming[1][1] && incoming[1][1][0] ? incoming[1][1][0] : null;
+        if (clientid) {
+          client = this.clients.get(clientid);
+          if (client) {
+            client.onOOBData([clientid, '-', true]);
+          }
+        }
+        if (incoming[1] && incoming[1][0]) {
+          this.pendingDefers.reject(incoming[1][0], new lib.Error('CLIENT_SHOULD_FORGET', 'Session ID not recognized on the server side, forget yourself'));
+        }
+        break;
+      default:
+        console.log('not processed', incoming);
+        break;
+    }
+    //this.onIncomingExecResult(incomingunit);
+  };
+  var _reportDefersThreshold = 20;
+  TalkerBase.prototype.reportDefers = function (title) {
+    //return;
+    if (this.pendingDefers && this.pendingDefers._map && this.pendingDefers._map.count>=_reportDefersThreshold) {
+      console.log(this.constructor.name, title, this.pendingDefers._map.count, 'defers');
+    }
+    /*
+    */
+  };
+  TalkerBase.prototype.enableLogging = function () {
+    this.logEnabled = true;
+    var c = this.clients, ca = this.clients.add, cr = this.clients.remove, t = this;
+    this.clients.add = function (key) {
+      t.log('adding', key);
+      return ca.apply(c, arguments);
+    };
+    this.clients.remove = function (key) {
+      t.log('removing', key);
+      return cr.apply(c, arguments);
+    };
+  };
+  TalkerBase.prototype.log = function () {
+    if (this.logEnabled) {
+      var args = [process.pid, this.id].concat(Array.prototype.slice.call(arguments,0));
+      console.log.apply(console, args);
+    }
+  };
+
+  return TalkerBase;
+}
+
+module.exports = createTalkerBase;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],173:[function(require,module,exports){
+(function (process){(function (){
+function createWSTalker(lib, PingingTalker, OuterClientBoundTalkerMixin) {
+  'use strict';
+  var _WebSocket, StringBuffer = lib.StringBuffer;
+  if ('undefined' !== typeof window) {
+    if (window.WebSocket) {
+      _WebSocket = window.WebSocket;
+    } else {
+      throw Error('No WebSocket support from the Browser');
+    }
+  } else {
+    _WebSocket = lib.ws;
+  }
+  function dump(data) {
+    return data; //needs more work for the `browserify` in order to use require('util') in the NodeJS case
+  }
+  function WSTalker(connectionstring, address, port, defer){
+    PingingTalker.call(this, true);
+    OuterClientBoundTalkerMixin.call(this, address, port, defer);
+    try{
+    this.connectionstring = connectionstring;
+    this.wsock = new _WebSocket(connectionstring);
+    this.sendchecker = this.onSend.bind(this);
+    this.messager = this.onMessage.bind(this);
+    this.opener = defer.resolve.bind(defer, this);
+    this.closer = this.onWSClosed.bind(this);
+    this.onincomer = this.forIncoming.bind(this);
+    this.setHandlers();
+    }
+    catch(e){
+      console.error(e.stack);
+      console.error(e);
+      this.destroy(e);
+    }
+  }
+  lib.inherit(WSTalker, PingingTalker);
+  OuterClientBoundTalkerMixin.addMethods(WSTalker);
+  WSTalker.prototype.__cleanUp = function () {
+    if(this.wsock){
+      this.wsock.close();
+      this.unSetHandlers();
+    }
+    this.onincomer = null;
+    this.closer = null;
+    this.opener = null;
+    this.messager = null;
+    this.sendchecker = null;
+    this.wsock = null;
+    OuterClientBoundTalkerMixin.prototype.destroy.call(this);
+    PingingTalker.prototype.__cleanUp.call(this);
+  };
+  WSTalker.prototype.setHandlers = function(){
+    this.wsock.on('error',this.errorer);
+    this.wsock.on('message',this.messager);
+    this.wsock.on('open',this.opener);
+    this.wsock.on('close',this.closer);
+  };
+  WSTalker.prototype.unSetHandlers = function(){
+    if (!this.wsock) {
+      return;
+    }
+    this.wsock.removeListener('error', this.errorer);
+    this.wsock.removeListener('message', this.messager);
+    this.wsock.removeListener('open', this.opener);
+    this.wsock.removeListener('close', this.closer);
+    this.wsock = null;
+  };
+  WSTalker.prototype.onSend = function (error) {
+    if (error) {
+      console.error(process.pid, this.address, this.port, 'WSTalker send error', error);
+    }
+  };
+  WSTalker.prototype.onWSClosed = function(){
+    console.log(process.pid, this.address, this.port, 'WSTalker closing');
+    this.unSetHandlers();
+    this.destroy(new lib.NoServerError('ws',this.address,this.port));
+  };
+  WSTalker.prototype.send = function(data){
+    var jsondata;
+    if (!this.wsock) {
+      return;
+    }
+    try {
+      jsondata = JSON.stringify(data);
+    } catch(e) {
+      console.error('could not stringify', dump(data));
+      return;
+    }
+    this.sendRaw(jsondata);
+  };
+  WSTalker.prototype.sendRaw = function (raw) {
+    try {
+      this.wsock.send(raw, this.sendchecker);
+    } catch(e) {
+      //console.error(e.stack);
+      //console.error('WSTalker tried to send data over a WebSocket, but got',e);
+      /*
+      */
+      this.onError(e);
+    }
+  };
+  WSTalker.prototype.onMessage = function(message){
+    StringBuffer.consumeString(message, this.onincomer);
+  };
+  WSTalker.prototype.forIncoming = function (message){
+    var m;
+    try{
+      m = JSON.parse(message);
+    }
+    catch(e){
+      console.error(e.stack);
+      console.error(e);
+      this.dieExceptionally(e);
+      return;
+    }
+    if (!m) {
+      console.error('Y NO MESSAGE?');
+      return;
+    }
+    //console.log('WSTalker got', m);
+    this.onIncoming(m);
+  };
+  WSTalker.prototype.type = 'ws';
+
+  function ServerWSTalker(connectionstring,address,port,defer){
+    WSTalker.call(this,connectionstring,address,port,defer);
+    this.sending = false;
+    this.buffer = new StringBuffer();
+  }
+  lib.inherit(ServerWSTalker, WSTalker);
+  ServerWSTalker.prototype.__cleanUp = function () {
+    this.sending = null;
+    if (this.buffer) {
+      this.buffer.destroy();
+    }
+    this.buffer = null;
+    WSTalker.prototype.__cleanUp.call(this);
+  };
+  ServerWSTalker.prototype.onSend = function (error) {
+    this.sending = false;
+    WSTalker.prototype.onSend.call(this,error);
+    if (this.buffer && this.buffer.hasContents()) {
+      this.sendBuffer();
+    }
+  };
+  var _zeroString = String.fromCharCode(0);
+  ServerWSTalker.prototype.send = function (data) {
+    var jd;
+    if (this.sending === null) {
+      console.log('no this.sending, NOT sending', data);
+      return;
+    }
+    if (!this.wsock) { //ok, just in case
+      console.log('no this.wsock, NOT sending', data);
+      return;
+    }
+    if (!this.buffer) {
+      console.log('no this.buffer, NOT sending', data);
+      return;
+    }
+    try {
+      jd = JSON.stringify(data);
+    } catch(e) {
+      console.error('could not stringify', dump(data));
+      return;
+    }
+    this.buffer.add(jd);
+    if (this.sending === false) {
+      this.sendBuffer();
+    }
+  };
+  ServerWSTalker.prototype.sendBuffer = function () {
+    this.sending = true;
+    this.buffer.get(this.sendRaw.bind(this));
+  };
+
+  function BrowserWSTalker(connectionstring,address,port,defer){
+    WSTalker.call(this,connectionstring,address,port,defer);
+  }
+  lib.inherit(BrowserWSTalker, WSTalker);
+
+  BrowserWSTalker.prototype.setHandlers = function () {
+    this.wsock.onerror=this.errorer;
+    this.wsock.onmessage=this.messager;
+    this.wsock.onopen=this.opener;
+    this.wsock.onclose=this.closer;
+  };
+  BrowserWSTalker.prototype.unSetHandlers = function(){
+    if (!this.wsock) {
+      return;
+    }
+    this.wsock.onerror = null;
+    this.wsock.onmessage = null;
+    this.wsock.onopen = null;
+    this.wsock.onclose = null;
+    this.wsock = null;
+  };
+  BrowserWSTalker.prototype.onMessage = function(message){
+    WSTalker.prototype.onMessage.call(this, message.data);
+  };
+
+  return 'undefined' === typeof window ? ServerWSTalker : BrowserWSTalker;
+}
+
+module.exports = createWSTalker;
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355}],174:[function(require,module,exports){
 (function (process){(function (){
 var randomBytes = require('crypto').randomBytes,
   counter = 0,
@@ -8582,7 +14006,7 @@ function createUidLib(q, getMac) {
 module.exports = createUidLib;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332,"crypto":249}],103:[function(require,module,exports){
+},{"_process":355,"crypto":262}],175:[function(require,module,exports){
 'use strict';
 var 
   jsonschema = require('jsonschema'),
@@ -8662,6 +14086,7 @@ var toExport = {
   readPropertyFromDotDelimitedString: stringmanip.readPropertyFromDotDelimitedString,
   writePropertyFromDotDelimitedString: stringmanip.writePropertyFromDelimitedString,
   toIndentedJson : stringmanip.toIndentedJson,
+  joinStringsWith : stringmanip.joinStringsWith,
   querystring : stringmanip.querystring,
   getMac: maclib.getMac,
   isMac: maclib.isMac,
@@ -8701,7 +14126,7 @@ var toExport = {
 
 module.exports = toExport;
 
-},{"allex_avltreelowlevellib":5,"allex_checkslowlevellib":8,"allex_deferfifolowlevellib":9,"allex_defermaplowlevellib":10,"allex_destroyablemixinslowlevellib":14,"allex_destructionlowlevellib":15,"allex_dicontainerlowlevellib":16,"allex_doublelinkedlistbaselowlevellib":23,"allex_doublelinkedlistlowlevellib":24,"allex_errorlowlevellib":25,"allex_eventemitterlowlevellib":26,"allex_fifolowlevellib":27,"allex_functionmanipulationlowlevellib":28,"allex_httprequestlowlevellib":29,"allex_inheritlowlevellib":30,"allex_isidenticallowlevellib":31,"allex_jsonizingerrorlowlevellib":32,"allex_listenablemaplowlevellib":33,"allex_macaddresslowlevellib":34,"allex_maplowlevellib":35,"allex_modulerecognitionlowlevellib":36,"allex_notanallexerrorerrorlowlevellib":43,"allex_objectmanipulationlowlevellib":47,"allex_propertymixinslowlevellib":56,"allex_qextlowlevellib":58,"allex_qlowlevellib":71,"allex_singlelinkedlistlowlevellib":96,"allex_stringbufferlowlevellib":97,"allex_stringmanipulationlowlevellib":98,"allex_timeoutlowlevellib":100,"allex_uidlowlevellib":102,"jsonschema":106}],104:[function(require,module,exports){
+},{"allex_avltreelowlevellib":5,"allex_checkslowlevellib":8,"allex_deferfifolowlevellib":19,"allex_defermaplowlevellib":20,"allex_destroyablemixinslowlevellib":26,"allex_destructionlowlevellib":27,"allex_dicontainerlowlevellib":28,"allex_doublelinkedlistbaselowlevellib":35,"allex_doublelinkedlistlowlevellib":36,"allex_errorlowlevellib":37,"allex_eventemitterlowlevellib":38,"allex_fifolowlevellib":39,"allex_functionmanipulationlowlevellib":40,"allex_httprequestlowlevellib":41,"allex_inheritlowlevellib":42,"allex_isidenticallowlevellib":43,"allex_jsonizingerrorlowlevellib":44,"allex_listenablemaplowlevellib":45,"allex_macaddresslowlevellib":46,"allex_maplowlevellib":47,"allex_modulerecognitionlowlevellib":48,"allex_notanallexerrorerrorlowlevellib":55,"allex_objectmanipulationlowlevellib":59,"allex_propertymixinslowlevellib":68,"allex_qextlowlevellib":70,"allex_qlowlevellib":84,"allex_singlelinkedlistlowlevellib":116,"allex_stringbufferlowlevellib":138,"allex_stringmanipulationlowlevellib":139,"allex_timeoutlowlevellib":151,"allex_uidlowlevellib":174,"jsonschema":178}],176:[function(require,module,exports){
 'use strict';
 
 var helpers = require('./helpers');
@@ -9649,7 +15074,7 @@ validators.not = validators.disallow = function validateNot (instance, schema, o
 
 module.exports = attribute;
 
-},{"./helpers":105}],105:[function(require,module,exports){
+},{"./helpers":177}],177:[function(require,module,exports){
 'use strict';
 
 var uri = require('url');
@@ -10015,7 +15440,7 @@ exports.isSchema = function isSchema(val){
 };
 
 
-},{"url":375}],106:[function(require,module,exports){
+},{"url":397}],178:[function(require,module,exports){
 'use strict';
 
 var Validator = module.exports.Validator = require('./validator');
@@ -10032,7 +15457,7 @@ module.exports.validate = function (instance, schema, options) {
   return v.validate(instance, schema, options);
 };
 
-},{"./helpers":105,"./scan":107,"./validator":108}],107:[function(require,module,exports){
+},{"./helpers":177,"./scan":179,"./validator":180}],179:[function(require,module,exports){
 "use strict";
 
 var urilib = require('url');
@@ -10109,7 +15534,7 @@ module.exports.scan = function scan(base, schema){
   return new SchemaScanResult(found, ref);
 };
 
-},{"./helpers":105,"url":375}],108:[function(require,module,exports){
+},{"./helpers":177,"url":397}],180:[function(require,module,exports){
 'use strict';
 
 var urilib = require('url');
@@ -10447,7 +15872,7 @@ types.object = function testObject (instance) {
 
 module.exports = Validator;
 
-},{"./attribute":104,"./helpers":105,"./scan":107,"url":375}],109:[function(require,module,exports){
+},{"./attribute":176,"./helpers":177,"./scan":179,"url":397}],181:[function(require,module,exports){
 window.ALLEX = {
   lib: require('allexlib'),
   LOW_LEVEL_LIBS : {},
@@ -10455,7 +15880,7 @@ window.ALLEX = {
 };
 require('./index.js')(ALLEX);
 
-},{"./index.js":110,"allexlib":103}],110:[function(require,module,exports){
+},{"./index.js":182,"allexlib":175}],182:[function(require,module,exports){
 function ServiceInterface () {
 }
 
@@ -10487,4847 +15912,7 @@ function createExecSuite (execlib) {
 
 module.exports = createExecSuite;
 
-},{"../node_modules/allex_servicepackservercorelib/authentication/sinkmapcreator":75,"../node_modules/allex_servicepackservercorelib/base/sinkmapcreator":80,"../node_modules/allex_servicepackservercorelib/base/taskcreator":83,"../node_modules/allex_servicepackservercorelib/servicesink":94,"allex_arrayoperationslowlevellib":1,"allex_callableservercorelib":7,"allex_clientcore":111,"allex_transportservercorelib":127}],111:[function(require,module,exports){
-function createWebFriendlySubset(execlib,TalkerFactory){
-  'use strict';
-  var lib = execlib.lib,
-    streamlib = require('allex_streamclientcorelib')(lib),
-    statelib = require('allex_stateclientcorelib')(lib),
-    loadDependencies = require('allex_dependencyloaderclientcorelib')(execlib),
-    talkerSpawner = require('allex_transportclientcorelib')(lib, TalkerFactory),
-    clientFactory = require('allex_clientsclientcorelib')(lib, talkerSpawner),
-    RegistryBase = require('allex_registrybaseclientcorelib')(execlib);
-
-  execlib.loadDependencies = loadDependencies;
-  execlib.execSuite = {
-    RegistryBase: RegistryBase,
-    additionalRegistries: new lib.Map(),
-    streamSourceCreator: streamlib.streamSourceCreator,
-    StreamSink: streamlib.StreamSink,
-    StreamBlackHole: streamlib.StreamBlackHole,
-    StreamSinkBunch: streamlib.StreamSinkBunch,
-    StreamDistributor: streamlib.StreamDistributor,
-    StateCoder: statelib.StateCoder,
-    StateSource: statelib.StateSource,
-    State2Array: statelib.State2Array,
-    State2Defer: statelib.State2Defer,
-    StateDecoder: statelib.StateDecoder,
-    State2Map: statelib.State2Map,
-    StatePathModifier: statelib.StatePathModifier,
-    StatePathListener: statelib.StatePathListener,
-    StateCollectionListener: statelib.StateCollectionListener,
-    StateScalarListener: statelib.StateScalarListener,
-    StateSubServiceExtractor: statelib.StateSubServiceExtractor,
-    ADS: statelib.ADS,
-    Collection: statelib.Collection,
-    LimitedCollection: statelib.LimitedCollection,
-    libRegistry: new RegistryBase(),
-    talkerSpawner: talkerSpawner,
-    clientFactory: clientFactory
-  };
-  execlib.execSuite.dependentMethod = require('allex_dependentmethodclientcorelib')(lib);
-  require('allex_taskclientcorelib')(execlib); //augment execSuite with Task functionality
-  require('allex_servicepackclientcorelib')(execlib,clientFactory); //augment execSuite with servicepack functionality (registry created here)
-};
-
-module.exports = createWebFriendlySubset;
-
-},{"allex_clientsclientcorelib":116,"allex_dependencyloaderclientcorelib":138,"allex_dependentmethodclientcorelib":139,"allex_registrybaseclientcorelib":140,"allex_servicepackclientcorelib":142,"allex_stateclientcorelib":151,"allex_streamclientcorelib":164,"allex_taskclientcorelib":170,"allex_transportclientcorelib":125}],112:[function(require,module,exports){
-(function (process){(function (){
-function createChildProcClient(lib, Client, talkerFactory) {
-  'use strict';
-  var q = lib.q, _childProcessClientCount = 0;
-  function ChildProcessClient(jstofork, options) {
-    //console.log('ChildProcessClient', process.pid, jstofork, options);
-    //console.log(process.pid, 'new ChildProcessClient', ++_childProcessClientCount);
-    this.jstofork = jstofork;
-    this.options = options;
-    Client.call(this, process.pid + '');
-  }
-  lib.inherit(ChildProcessClient, Client);
-  ChildProcessClient.prototype.__cleanUp = function () {
-    Client.prototype.__cleanUp.call(this);
-    this.options = null;
-    this.jstofork = null;
-    //console.log(process.pid, 'ChildProcessClient dead');//, --_childProcessClientCount);
-  };
-  ChildProcessClient.prototype.createTalker = function () {
-    return q(talkerFactory('proc', this.jstofork, this.options));
-  };
-  ChildProcessClient.prototype.communicationType = 'child_process';
-  return ChildProcessClient;
-}
-
-module.exports = createChildProcClient;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],113:[function(require,module,exports){
-function createClient(lib){
-  'use strict';
-  var q = lib.q, _ClientCount=0;
-  function no__seriesCopier (obj, val, key) {
-    if (key !== '__service') {
-      obj.ret[key] = val;
-    }
-  }
-  function safeCredentials(credentials) {
-    if ('object' !== typeof credentials) {
-      return null;
-    }
-    var ret = {}, nscobj = {ret: ret};
-    lib.traverseShallow(credentials, no__seriesCopier.bind(null, nscobj));
-    nscobj.ret = null;
-    nscobj = null;
-    return ret;
-  }
-
-  function ClientIdentity(session,credentials){
-    this.talkerid = null;
-    this.session = session||null;
-    this.credentials = safeCredentials(credentials);
-    if (credentials && credentials.ip && !credentials.ip.name) {
-      console.trace();
-      console.log('Y NO NAME?', credentials);
-    }
-    this.__established = false;
-  }
-  ClientIdentity.prototype.destroy = function(){
-    this.__established = null;
-    this.credentials = null;
-    this.session = null;
-    this.talkerid = null;
-  };
-  ClientIdentity.prototype.set = function(introduce){
-    this.session = introduce.session;
-    this.__established = !!this.session;
-    this.credentials = null;
-  };
-  ClientIdentity.prototype.toIntroduceArray = function(){
-    return [this.session, this.credentials ? this.credentials : null];
-  };
-  ClientIdentity.prototype.established = function(){
-    return this.__established;
-  };
-
-  var dummyOOBSink = {
-    destroy:lib.dummyFunc,
-    onOOBData:lib.dummyFunc
-  };
-  function OOBSource(){
-    this.oob = new lib.Fifo;
-    this.oobsink = null;
-  }
-  OOBSource.prototype.destroy = function(){
-    if (this.oob) {
-      this.oob.destroy();
-    }
-    this.oob = null;
-    this.oobsink = null;
-  };
-  OOBSource.prototype.unlinkAndDestroy = function(){
-    this.destroy();
-  };
-  OOBSource.prototype.isGoingToDie = function(){
-    return this.oobsink === dummyOOBSink;
-  };
-  OOBSource.prototype.onOOBData = function(oob){
-    if (!this.oob) {
-      return;
-    }
-    if(oob[1] === '-'){
-      //console.log(process.pid,'OOBSource dying',this.identity ? this.identity.session : 'no session');
-      this.setOOBSink(dummyOOBSink);
-      this.destroy();
-      return;
-    }
-    if(this.oobsink){
-      this.oobsink.onOOBData(oob);
-    }else{
-      try {
-      this.oob.push(this.oobItemClone(oob));
-      } catch (e) {
-        console.trace();
-        console.log('cannot clone oob', oob);
-        console.log(oob);
-        console.error(e.stack);
-        console.error(e);
-      }
-    }
-  };
-  OOBSource.prototype.setOOBSink = function(oobsink){
-    var _os;
-    if(!this.oob){
-      return;
-    }
-    if(oobsink){
-      _os = oobsink;
-      this.oob.drain(_os.onOOBData.bind(_os));
-      _os = null;
-    }
-    this.oobsink = oobsink;
-  };
-  OOBSource.prototype.goDie = function () {
-    this.destroy();
-  };
-  OOBSource.prototype.oobItemClone = function (item) {
-    return item;
-    //return JSON.parse(JSON.stringify(item));
-  };
-  // Specialized classes need to override
-  // a method send that returns a promise.
-  // setup a mechanism to fetch incoming data
-  // and feed them to the onIncoming method
-  function Client(session,credentials){
-    //console.log(process.pid, 'new Client', ++_ClientCount);
-    lib.ComplexDestroyable.call(this);
-    OOBSource.call(this);
-    this.q = new lib.Fifo();
-    this.authenticated = new lib.HookCollection();
-    this.children = new lib.Map();
-    this.identity = new ClientIdentity(session,credentials);
-    this.talker = null;
-    this.dieExeced = false;
-    //this.talkerDestroyedListener = null;
-    this.obtainTalker().then(
-      this.onTalker.bind(this),
-      this.destroy.bind(this)
-    );
-  }
-  lib.inherit(Client, lib.ComplexDestroyable);
-  Client.prototype.onOOBData = OOBSource.prototype.onOOBData;
-  Client.prototype.setOOBSink = OOBSource.prototype.setOOBSink;
-  Client.prototype.isGoingToDie = OOBSource.prototype.isGoingToDie;
-  Client.prototype.oobItemClone = OOBSource.prototype.oobItemClone;
-  Client.prototype.__cleanUp = function(){
-    //console.log(process.pid,this.identity.session,'finally dying');
-    var children = this.children, authenticated = this.authenticated;
-     if (!children) {
-      console.log('======================================================================return');
-      return;
-    }
-    /*
-    if (this.talkerDestroyedListener) {
-      this.talkerDestroyedListener.destroy();
-    }
-    this.talkerDestroyedListener = null;
-    */
-    this.dieExeced = null;
-    if (this.talker) {
-      this.talker.remove(this);
-    }
-    this.talker = null;
-    this.children = null;
-    this.identity.destroy();
-    this.identity = null;
-    this.authenticated = null;
-    this.q.destroy();
-    this.q = null;
-    OOBSource.prototype.destroy.call(this);
-    lib.ComplexDestroyable.prototype.__cleanUp.call(this);
-    if (children) {
-      lib.containerDestroyAll(children);
-    }
-    if (authenticated) {
-      authenticated.destruct();
-    }
-    //console.log(process.pid, 'Client down', --_ClientCount);
-  };
-  function deathTeller(client, session) {
-    //client.onOOBData([session, '-', true]);
-  }
-  Client.prototype.startTheDyingProcedure = function () {
-    if (!this.children) {
-      return;
-    }
-    if (this.talker && this.talker.__dyingException) {
-      this.__dyingException = this.talker.__dyingException;
-    }
-    this.children.traverse(deathTeller);
-    //lib.containerDestroyAll(this.children);
-  };
-  Client.prototype.dyingCondition = function () {
-    if (!this.children) {
-      return true;
-    }
-    var ret = this.children.traverseConditionally(hasSession);
-    if (ret) {
-      //console.log(process.pid, 'Client cannot die yet, there are children');
-      return false;
-    }
-    return true;
-    //return this.children.length < 1;
-  };
-  function hasSession(chld){
-    if(chld && chld.identity && chld.identity.session){
-      return true;
-    }
-  }
-  Client.prototype.dieExceptionally = function(exception){
-    if(!this.destroyed){
-      return;
-    }
-    this.destroy(exception);
-  };
-  function godier (c) {
-    c.goDie();
-  }
-  Client.prototype.goDie = function(){
-    /*
-    if(this.isGoingToDie()){
-      return;
-    }
-    */
-    if(!this.children){
-      return;
-    }
-    this.children.traverse(godier);
-    //console.log(this.identity.session, 'going to die');
-    //console.log(process.pid, 'Client wants to die');
-    if (this.dieExeced === false) {
-      this.dieExeced = true;
-      this.exec(['!',['die', []]]).then(
-        null,
-        this.destroy.bind(this)
-      );
-    }
-  };
-  Client.prototype.obtainTalker = function () {
-    if (this.talker) {
-      return q(this.talker);
-    }
-    return this.createTalker();
-  };
-  Client.prototype.onTalker = function (talker) {
-    if (!talker) {
-      this.destroy();
-      return;
-    }
-    this.talker = talker;
-    if (!this.checkTalker()) {
-      return;
-    }
-    //this.talkerDestroyedListener = this.talker.destroyed.attach(this.destroy.bind(this));
-    this.talker.add(this).then(
-      this.onIdentity.bind(this),
-      this.destroy.bind(this)
-    );
-  };
-  Client.prototype.checkTalker = function () {
-    if (!this.talker) {
-      return false;
-    }
-    if (!this.talker.destroyed) {
-      return false;
-    }
-    if (this.talker.__dying) {
-      if (this.talker.__dyingException) {
-        this.destroy(this.talker.__dyingException);
-      } else {
-        this.destroy();
-      }
-      return false;
-    }
-    return true;
-  };
-  Client.prototype.onIdentity = function(introduce){
-    if (!this.identity) {
-      return;
-    }
-    if (!introduce) {
-      this.destroy();
-      return;
-    }
-    this.identity.set(introduce);
-    var qi;
-    if(this.identity.established()){
-      this.authenticated.fire(this,introduce.modulename,introduce.role);
-      this.q.drain(this.drainer.bind(this));
-      //this.talker.onSent('exec');
-    }
-  };
-  Client.prototype.drainer = function (qi) {
-    var _d;
-    if (!this.checkTalker()) {
-      return;
-    }
-    _d = qi[1];
-    this.talker.transfer(this, qi[0]).then(_d.resolve.bind(_d));
-    _d = null;
-  };
-  Client.prototype.okToSend = function () {
-    return this.identity.established();
-  };
-  Client.prototype.exec = function(callablespec){
-    if (!this.q) {
-      console.warn("I'm dead ... ");
-      return q.reject(new lib.Error('ALREADY_DEAD', 'A destroyed Client cannot exec'));
-    }
-    if (!this.talker) {
-      var d = q.defer();
-      this.q.push([callablespec, d]);
-      return d.promise;
-    }
-    if (!this.checkTalker()) {
-      return q.reject(this.__dyingException);
-    }
-    return this.talker.transfer(this,callablespec);
-  };
-  function findPD(targetid,content){
-    return content ? targetid===content.id : false;
-  }
-  Client.prototype.onSubConnected = function(subservicename,d,introducehash){
-    try {
-    if (!this.destroyed) {
-      d.resolve(null);
-      d = null;
-      return;
-    }
-    //console.log('onSubConnected',subservicename,introducehash,this.identity.session);
-    if(introducehash && introducehash.introduce){
-      d.resolve({
-        role:introducehash.introduce.role,
-        servicepackname:introducehash.introduce.modulename,
-        client:new SubClient(subservicename,introducehash.introduce,this._parent ? this._parent : this)});
-    }else{
-      d.resolve(null);
-    }
-    } catch(e) {
-      console.error(e.stack);
-      console.error(e);
-    }
-    d = null;
-  };
-  Client.prototype.subConnect = function(subservicename,userhash,ctor){
-    //console.trace();
-    //console.log('subConnect',subservicename,userhash,process.pid);
-    var d = q.defer(), ret = d.promise;
-    this.exec(['!', ['subConnect', [subservicename,userhash]]]).done(
-      this.onSubConnected.bind(this,subservicename,d),
-      d.reject.bind(d)
-    );
-    d = null;
-    return ret;
-  };
-  Client.prototype.onIncomingExecResult = function(incomingunit){
-    if (!(incomingunit.id || incomingunit.oob)) {
-      console.log('onIncomingExecResult', incomingunit);
-    }
-    if(!this.destroyed){
-      return;
-    }
-    var iuid = incomingunit.id;
-    if(!iuid){
-      return;
-    }
-    var isess = incomingunit.session;
-    if(this.identity.session && (this.identity.session!==isess)){
-      var child = this.children.get(isess);
-      if(child){
-        child.onIncomingExecResult(incomingunit);
-      }
-      return;
-    }
-  };
-  Client.prototype.setChild = function(chld){
-    if(!(chld && chld.identity && chld.identity.session)){
-      console.log('NOT TAKING THIS CHILD', chld);
-      return;
-    }
-    if (!this.children) {
-      return;
-    }
-    var session = chld.identity.session;
-    var oldchld = this.children.replace(session,chld);
-    if(oldchld && (oldchld !== chld)){
-      oldchld.setOOBSink(chld);
-      oldchld.unlinkAndDestroy();
-    }
-  };
-  Client.prototype.removeChild = function(chld){
-    if(!(this.children && chld && chld.identity && chld.identity.session)){
-      return;
-    }
-    var session = chld.identity.session;
-    this.children.remove(session);
-    if(this.children.count<1) {
-      this.maybeDie();
-    }
-  };
-
-  var _subClientCount = 0;
-  function SubClient(subservicename,introduce,parnt){
-    //console.log('client introduced',subservicename,introduce);
-    //console.log(process.pid, 'new SubClient', ++_subClientCount);
-    this.subservicename = subservicename;
-    this._parent = parnt;
-    Client.call(this,introduce.session);
-    //console.log('SubClient',introduce.session,this._parent.identity.session);
-    this.identity.talkerid = introduce.session;
-    this.identity.set(introduce,null);
-    this._parent.setChild(this);
-  };
-  lib.inherit(SubClient,Client);
-  SubClient.prototype.__cleanUp = function(){
-    if(this._parent){
-      this._parent.removeChild(this);
-    }
-    this._parent = null;
-    this.subservicename = null;
-    Client.prototype.__cleanUp.call(this);
-    //console.log(process.pid, 'SubClient dead', --_subClientCount);
-  };
-  SubClient.prototype.onTalker = function (talker) {
-    Client.prototype.onTalker.call(this, talker);
-    this.exec(['!',['confirmReservation',[]]]).done(
-      null,
-      this.onConfirmReservationFailed.bind(this)
-    );
-  };
-  SubClient.prototype.unlinkAndDestroy = function(){
-    this._parent = null;
-    this.destroy();
-  };
-  SubClient.prototype.onConfirmReservationFailed = function(reason){
-    if (!this.destroyed) {
-      return;
-    }
-    if (this.identity) {
-      console.error(this.identity.session,'confirmReservation failed',reason);
-    }
-    this.destroy();
-  };
-  SubClient.prototype.obtainTalker = function () {
-    return this._parent.obtainTalker();
-  };
-
-  return Client;
-}
-
-module.exports = createClient;
-
-},{}],114:[function(require,module,exports){
-function createHttpClientBase (lib, Client, talkerFactory) {
-  'use strict';
-  var q = lib.q, _httpClientBaseCount = 0;
-  function HttpClientBase(connectionstring,address,port,session,credentials){
-    //console.log(process.pid, 'new HttpClientBase', address, port, ++_httpClientBaseCount);
-    this.connectionstring = connectionstring;
-    this.address = address;
-    this.port = port;
-    Client.call(this,session,credentials);
-  }
-  lib.inherit(HttpClientBase,Client);
-  HttpClientBase.prototype.__cleanUp = function(){
-    /*
-    console.trace();
-    console.log('HttpClientBase dying');
-    */
-    //console.log(process.pid, 'HttpClientBase dead', this.address, this.port, --_httpClientBaseCount);
-    this.port = null;
-    this.address = null;
-    this.connectionstring = null;
-    Client.prototype.__cleanUp.call(this);
-  };
-  HttpClientBase.prototype.createTalker = function () {
-    return talkerFactory(this.ChannelCode, this.connectionstring, this.address, this.port);
-  };
-
-  return HttpClientBase;
-}
-module.exports = createHttpClientBase;
-
-},{}],115:[function(require,module,exports){
-function createHTTPClient(lib, HttpClientBase){
-  'use strict';
-  function HttpClient(connectionstring, address, port, session, credentials){
-    HttpClientBase.call(this, connectionstring, address, port, session, credentials);
-  }
-  lib.inherit(HttpClient, HttpClientBase);
-  HttpClient.prototype.ChannelCode = 'http';
-
-  return HttpClient;
-}
-
-module.exports = createHTTPClient;
-
-},{}],116:[function(require,module,exports){
-var Url = require('url');
-
-function createClientFactory(lib, talkerFactory){
-  'use strict';
-  var Client = require('./clientcreator')(lib),
-    ChildProcClient = require('./childprocclientcreator')(lib, Client, talkerFactory),
-    SocketClient = require('./socketclientcreator')(lib, Client, talkerFactory),
-    HttpClientBase = require('./httpclientbasecreator')(lib, Client, talkerFactory),
-    WSClient = require('./wsclientcreator')(lib, HttpClientBase),
-    HTTPClient = require('./httpclientcreator')(lib, HttpClientBase),
-    InProcClient = require('./inprocclientcreator')(lib,Client,talkerFactory);
-
-  function produceClient(connectionstring,credentials,session){
-    var tocs = typeof connectionstring;
-    if('string' !== tocs){
-      if(connectionstring && connectionstring.authenticatorSink){
-        return new (InProcClient)(connectionstring,session,credentials);
-      }
-      return null;
-    }
-    var csurlobj = Url.parse(connectionstring,true);
-    switch(csurlobj.protocol){
-      case 'fork:':
-        var forkpath = '';
-        if(csurlobj.hostname){
-          forkpath+=csurlobj.hostname;
-        }
-        if(csurlobj.pathname){
-          forkpath+=csurlobj.pathname;
-        }
-        return new (ChildProcClient)(forkpath,csurlobj.query);
-      case 'socket:':
-        return new (SocketClient)(csurlobj.hostname||csurlobj.pathname,csurlobj.port,session,credentials);
-        break;
-      case 'ws:':
-      case 'wss:':
-        return new (WSClient)(connectionstring,csurlobj.hostname||csurlobj.pathname,csurlobj.port,session,credentials);
-        break;
-      case 'http:':
-      case 'https:':
-        return new (HTTPClient)(connectionstring,csurlobj.hostname||csurlobj.pathname,csurlobj.port,session,credentials);
-        break;
-      default:
-        throw new lib.UnsupportedProtocolError(csurlobj.protocol);
-    }
-  }
-
-  return produceClient;
-}
-
-module.exports = createClientFactory;
-
-},{"./childprocclientcreator":112,"./clientcreator":113,"./httpclientbasecreator":114,"./httpclientcreator":115,"./inprocclientcreator":117,"./socketclientcreator":118,"./wsclientcreator":119,"url":375}],117:[function(require,module,exports){
-function createInProcClient(lib,Client,talkerFactory){
-  'use strict';
-  var q = lib.q, _inProcClientCount = 0;
-  function InProcClient(inprocgate,session,credentials){
-    //console.log(process.pid, 'new InProcClient', ++_inProcClientCount);
-    this.gate = inprocgate;
-    Client.call(this,session,credentials);
-  }
-  lib.inherit(InProcClient,Client);
-  InProcClient.prototype.__cleanUp = function(){
-    Client.prototype.__cleanUp.call(this);
-    this.gate = null;
-    //console.log(process.pid, 'InProcClient dead', --_inProcClientCount);
-  };
-  InProcClient.prototype.createTalker = function () {
-    return q(talkerFactory('inproc', this.gate));
-  };
-  InProcClient.prototype.oobItemClone = function (item) {
-    return JSON.parse(JSON.stringify(item));
-  };
-  return InProcClient;
-}
-
-module.exports = createInProcClient;
-
-},{}],118:[function(require,module,exports){
-function createTCPClient(lib, Client, talkerFactory){
-  'use strict';
-  var q = lib.q;
-  var _socketClientCount = 0, _id = 0;
-  function SocketClient(address, port, session, credentials) {
-    this.id = ++_id;
-    //console.log(process.pid, 'new SocketClient', this.id, ++_socketClientCount, address, port);
-    this.address = address;
-    this.port = port;
-    Client.call(this, session, credentials);
-  }
-  lib.inherit(SocketClient, Client);
-  SocketClient.prototype.__cleanUp = function () {
-    //console.log(process.pid, 'SocketClient dead', this.id, --_socketClientCount, this.address, this.port);
-    Client.prototype.__cleanUp.call(this);
-    this.port = null;
-    this.address = null;
-  };
-  SocketClient.prototype.createTalker = function () {
-    var ret = talkerFactory('initiatingsocket', this.address, this.port);
-    ret.then(null, this.destroy.bind(this));
-    return ret;
-  };
-
-  return SocketClient;
-}
-
-module.exports = createTCPClient;
-
-},{}],119:[function(require,module,exports){
-function createWSClient(lib, HttpClientBase){
-  'use strict';
-  var q = lib.q, _wsClientCount = 0;
-  function WSClient(connectionstring,address,port,session,credentials){
-    HttpClientBase.call(this, connectionstring, address, port, session, credentials);
-  }
-  lib.inherit(WSClient,HttpClientBase);
-  WSClient.prototype.ChannelCode = 'ws';
-
-  return WSClient;
-}
-
-module.exports = createWSClient;
-
-},{}],120:[function(require,module,exports){
-function createDestinationError(lib){
-  'use strict';
-  var AllexError = lib.Error;
-  function DestinationError(protocol,address,port){
-    var description = 'Could not connect to '+protocol+'://'+address;
-    if(port){
-      description += (':'+port);
-    }
-    var ret = AllexError.call(this,'ADDRESS_NOT_FOUND',description);
-    ret.transport = 'DestinationError';
-    ret.address = address;
-    ret.port = port;
-    return ret;
-  }
-  lib.inherit(DestinationError,AllexError);
-  return DestinationError;
-}
-
-module.exports = createDestinationError;
-
-},{}],121:[function(require,module,exports){
-function createTransportErrors(lib){
-  'use strict';
-  lib.DestinationError = require('./destinationerrorcreator')(lib);
-  lib.UnsupportedProtocolError = require('./unsupportedprotocolerrorcreator')(lib);
-  lib.UnconnectableError = require('./unconnectableerrorcreator')(lib);
-  lib.NoServerError = require('./noservererrorcreator')(lib);
-};
-
-module.exports = createTransportErrors;
-
-},{"./destinationerrorcreator":120,"./noservererrorcreator":122,"./unconnectableerrorcreator":123,"./unsupportedprotocolerrorcreator":124}],122:[function(require,module,exports){
-function createNoServerError(lib){
-  'use strict';
-  var AllexError = lib.Error;
-  function NoServerError(protocol,address,port){
-    var description = 'No server at '+protocol+'://'+address;
-    if(port){
-      description += (':'+port);
-    }
-    var ret = AllexError.call(this,'NO_SERVER',description);
-    ret.transport = 'NoServerError';
-    ret.address = address;
-    ret.port = port;
-    return ret;
-  }
-  lib.inherit(NoServerError,AllexError);
-  return NoServerError;
-}
-
-module.exports = createNoServerError;
-
-
-},{}],123:[function(require,module,exports){
-function createUnconnectableError(lib){
-  'use strict';
-  var AllexError = lib.Error;
-  function UnconnectableError(connectionstring){
-    var ret = AllexError.call(this,'BAD_ADDRESS','Connection string '+connectionstring+' is not connectable');
-    ret.transport = 'UnconnectableError';
-    ret.connectionstring = connectionstring;
-    return ret;
-  }
-  lib.inherit(UnconnectableError,AllexError);
-  return UnconnectableError;
-}
-
-module.exports = createUnconnectableError;
-
-},{}],124:[function(require,module,exports){
-function createUnsupportedProtocolError(lib){
-  'use strict';
-  var AllexError = lib.Error;
-  function UnsupportedProtocolError(protocol){
-    var ret = AllexError.call(this,'UNSUPPORTED_PROTOCOL','Protocol '+protocol+' is not supported');
-    ret.transport = 'UnsupportedProtocolError';
-    ret.protocol = protocol;
-    return ret;
-  }
-  lib.inherit(UnsupportedProtocolError,AllexError);
-  return UnsupportedProtocolError;
-}
-
-module.exports = createUnsupportedProtocolError;
-
-
-},{}],125:[function(require,module,exports){
-(function (process){(function (){
-var net = require('net');
-
-function createTransportFactory(lib, TalkerFactory) {
-  'use strict';
-
-  var q = lib.q,
-    talkerFactory = new TalkerFactory(),
-    httpTalkers = new lib.Map(),
-    wsTalkers = new lib.Map(),
-    socketTalkers = new lib.Map();
-
-  if ('undefined' === typeof window) {
-    process.on('exit', destroyAllTalkers);
-  } else {
-    window.onclose = destroyAllTalkers;
-  }
-
-  function destroyAllTalkers() {
-    lib.containerDestroyAll(socketTalkers);
-    socketTalkers.destroy();
-    lib.containerDestroyAll(wsTalkers);
-    wsTalkers.destroy();
-  }
-
-  function TalkerSlot() {
-    this.getMap().add(this.getName(), this);
-  }
-  TalkerSlot.prototype.destroy = function () {
-    this.getMap().remove(this.getName());
-  }
-  TalkerSlot.prototype.getMap = lib.dummyFunc;
-  TalkerSlot.prototype.getName = lib.dummyFunc;
-
-  function HttpTalkerSlot(connectionstring, address, port, defer) {
-    if (!connectionstring) {
-      throw new lib.Error('NO_WS_CONNECTION_STRING');
-    }
-    this.connectionstring = connectionstring;
-    this.defer = defer;
-    TalkerSlot.call(this);
-    this.talker = talkerFactory.newHttpTalker(connectionstring, address, port, defer);
-    this.talker.aboutToDie.attach(this.destroy.bind(this));
-  }
-  HttpTalkerSlot.prototype.destroy = function () {
-    TalkerSlot.prototype.destroy.call(this);
-    this.talker = null;
-    this.defer = null;
-    this.connectionstring = null;
-  };
-  HttpTalkerSlot.prototype.getMap = function () {
-    return httpTalkers;
-  };
-  HttpTalkerSlot.prototype.getName = function () {
-    return this.connectionstring;
-  };
-
-  function WSTalkerSlot(connectionstring, address, port, defer) {
-    if (!connectionstring) {
-      throw new lib.Error('NO_WS_CONNECTION_STRING');
-    }
-    this.connectionstring = connectionstring;
-    this.defer = defer;
-    TalkerSlot.call(this);
-    defer.promise.then(null, this.destroy.bind(this));
-    this.talker = talkerFactory.newWSTalker(connectionstring, address, port, defer);
-    this.talker.aboutToDie.attach(this.destroy.bind(this));
-  }
-  WSTalkerSlot.prototype.destroy = function () {
-    if (!this.connectionstring) {
-      return;
-    }
-    this.talker = null;
-    this.defer = null;
-    TalkerSlot.prototype.destroy.call(this);
-    this.connectionstring = null;
-  };
-  WSTalkerSlot.prototype.getMap = function () {
-    return wsTalkers;
-  };
-  WSTalkerSlot.prototype.getName = function () {
-    return this.connectionstring;
-  };
-
-  function SocketSlot(address, port, defer) {
-    this.address = address;
-    this.port = port;
-    this.onConnectedBound = this.onConnected.bind(this);
-    this.onErrorBound = this.onError.bind(this);
-    this.onClosedBound = this.onClosed.bind(this);
-    this.defer = defer;
-    this.socket = null;
-    this.connect();
-    this.talker = null;
-    TalkerSlot.call(this);
-  }
-  SocketSlot.prototype.destroy = function () {
-    this.talker = null;
-    this.socket = null;
-    this.defer = null;
-    this.onClosedBound = null;
-    this.onErrorBound = null;
-    this.onConnectedBound = null;
-    this.port = null;
-    this.address = null;
-    TalkerSlot.prototype.destroy.call(this);
-  };
-  SocketSlot.prototype.getMap = function () {
-    return socketTalkers;
-  };
-  SocketSlot.prototype.getName = function () {
-    return this.address+':'+this.port;
-  };
-  SocketSlot.prototype.resolve = function () {
-    if (!this.defer) {
-      return;
-    }
-    if (this.talker) {
-      return;
-    }
-    this.talker = talkerFactory.newTcpTalker(this.socket, null, false);
-    this.defer.resolve(this.talker);
-  };
-  SocketSlot.prototype.reject = function (reason) {
-    if (!this.defer) {
-      return;
-    }
-    this.defer.reject(reason);
-    this.destroy();
-  };
-  SocketSlot.prototype.connect = function(){
-    if(this.socket){
-      this.reject(new lib.Error('ALREADY_CONNECTED', 'Already connected to '+this.address+':'+this.port));
-    }
-    if(this.talker){
-      this.reject(new lib.Error('ALREADY_CONNECTED', 'Already connected to '+this.address+':'+this.port));
-    }
-    //console.log('connecting to',this.address,this.port);
-    if(!(this.address)){//&&this.port)){
-      return;
-    }
-    this.socket = new net.Socket();
-    this.socket.on('connect',this.onConnectedBound);
-    this.socket.on('error',this.onErrorBound);
-    this.socket.on('close', this.onClosedBound);
-    if(this.port){
-      this.socket.connect(this.port,this.address);
-    }else{
-      this.socket.connect(this.address);
-    }
-  };
-  SocketSlot.prototype.onError = function(error){
-    if(this.socket){
-      this.socket.removeAllListeners();
-    }
-    this.socket = null;
-    switch(error.code){
-      case 'ENOENT':
-      case 'ENOTFOUND':
-        this.reject(new lib.DestinationError('socket',this.address,this.port));
-        break;
-      case 'ECONNREFUSED':
-        this.reject(new lib.NoServerError('socket',this.address,this.port));
-      default:
-        setTimeout(this.connect.bind(this),100);
-        break;
-    }
-  };
-  SocketSlot.prototype.onClosed = function () {
-    if (this.socket) {
-      this.socket.removeListener('close', this.onClosedBound);
-    }
-    this.destroy();
-  };
-  SocketSlot.prototype.onConnected = function(socket){
-    if (!this.socket) {
-      //wut?
-      console.error('no socket?');
-      return;
-    }
-    this.socket.removeListener('connect', this.onConnectedBound);
-    this.socket.removeListener('error', this.onErrorBound);
-    this.resolve();
-  };
-
-  function talkerchecker (type, address, port, talker) {
-    var _t = type, _a = address, _p = port;
-    type = null;
-    address = null;
-    port = null;
-    if (!(talker && talker.isUsable())) {
-      return factory(_t, _a, _p);
-    }
-    return talker;
-  }
-
-  function factory(type) {
-    var slot, connectionstring, address, port, defer;
-    switch(type) {
-      case 'inproc':
-        return talkerFactory.newInProcTalker(arguments[1]);
-      case 'socket':
-        return talkerFactory.newTcpTalker(arguments[1], arguments[2], arguments[3]);
-      case 'initiatingsocket':
-        address = arguments[1];
-        port = arguments[2];
-        connectionstring = address+':'+port;
-        var slot = socketTalkers.get(connectionstring);
-        if (slot) {
-          if (slot.defer) {
-            return slot.defer.promise.then(
-              talkerchecker.bind(null, type, address, port)
-            );
-          } else {
-            socketTalkers.remove(connectionstring);
-          }
-        }
-        defer = q.defer();
-        slot = new SocketSlot(address, port, defer);
-        return slot.defer.promise;
-      case 'http':
-        connectionstring = arguments[1];
-        address = arguments[2];
-        port = arguments[3];
-        slot = httpTalkers.get(connectionstring);
-        defer = q.defer();
-        if (slot) {
-          return slot.defer.promise;
-        }
-        slot = new HttpTalkerSlot(connectionstring, address, port, defer);
-        return slot.defer.promise;
-      case 'ws':
-        /*
-        return new WSTalker(arguments[1], arguments[2], arguments[3], arguments[4]);
-        */
-        connectionstring = arguments[1];
-        address = arguments[2];
-        port = arguments[3];
-        slot = wsTalkers.get(connectionstring);
-        defer = q.defer();
-        if (slot) {
-          return slot.defer.promise;
-        }
-        slot = new WSTalkerSlot(connectionstring, address, port, defer);
-        return slot.defer.promise;
-      case 'proc':
-        return talkerFactory.newProcessTalker(arguments[1], arguments[2]);
-    }
-  }
-
-  require('./errors')(lib);
-
-  return factory;
-}
-
-module.exports = createTransportFactory;
-
-}).call(this)}).call(this,require('_process'))
-},{"./errors":121,"_process":332,"net":238}],126:[function(require,module,exports){
-(function (process){(function (){
-function createHttpTalker (lib, TalkerBase, OuterClientBoundTalkerMixin, signalR) {
-  'use strict';
-
-  var qlib = lib.qlib,
-    JobOnDestroyableBase = qlib.JobOnDestroyableBase;
-
-  function HttpTalker(connectionstring, address, port, defer) {
-    TalkerBase.call(this);
-    OuterClientBoundTalkerMixin.call(this, address, port, defer);
-    this.underscorer = this.onSignalRUnderscore.bind(this);
-    this.closer = this.onSignalRClosed.bind(this);
-    this.connectionstring = connectionstring;
-    this.sr = new signalR.HubConnectionBuilder()
-      .withUrl(this.connectionstring)
-      .configureLogging(5) //critical only
-      .build();
-    this.jobs = new qlib.JobCollection();
-    this.setHandlers();
-    this.sr.start({withCredentials: false}).then(
-      defer.resolve.bind(defer, this),
-      this.errorer
-    );
-  };
-  lib.inherit(HttpTalker, TalkerBase);
-  OuterClientBoundTalkerMixin.addMethods(HttpTalker);
-  HttpTalker.prototype.__cleanUp = function(){
-    if (this.jobs) {
-      this.jobs.destroy();
-    }
-    this.jobs = null;
-    this.unSetHandlers();
-    if (this.sr) {
-      this.sr.stop();
-    }
-    this.sr = null;
-    this.connectionstring = null;
-    this.errorer = null;
-    this.closer = null;
-    this.underscorer = null;
-    OuterClientBoundTalkerMixin.prototype.destroy.call(this);
-    TalkerBase.prototype.__cleanUp.call(this);
-  };
-  HttpTalker.prototype.send = function (obj) {
-    return this.jobs.run('.', new SignalRSendingJob(this, obj));
-  };
-
-  HttpTalker.prototype.setHandlers = function () {
-    this.sr.on('_', this.underscorer);
-    this.sr.onclose(this.closer);
-  };
-  HttpTalker.prototype.unSetHandlers = function () {
-    if (!this.sr) {
-      return;
-    }
-    this.sr.off('_', this.underscorer);
-    this.sr.onclose(null); //no way to unset the close handler?
-  };
-
-  HttpTalker.prototype.onSignalRUnderscore = function (oobobj) {
-    //console.log('HttpTalker onIncoming', oobobj);
-    this.onIncoming(oobobj);
-  };
-  HttpTalker.prototype.onSignalRClosed = function (error) {
-    if (this.address && this.port) {
-      console.log(process.pid, this.address, this.port, 'HttpTalker closing');
-      //this.destroy(error);
-      this.destroy(new lib.NoServerError('ws',this.address,this.port));
-      return;
-    }
-    this.destroy();
-  };
-
-
-  //jobs
-
-  function SignalRSendingJob (talker, data, defer) {
-    JobOnDestroyableBase.call(this, talker, defer);
-    this.talker = talker;
-    this.data = data;
-  }
-  lib.inherit(SignalRSendingJob, JobOnDestroyableBase);
-  SignalRSendingJob.prototype.destroy = function () {
-    this.data = null;
-    this.talker = null;
-    JobOnDestroyableBase.prototype.destroy.call(this);
-  };
-  SignalRSendingJob.prototype._destroyableOk = function () {
-    return this.destroyable && this.destroyable.sr;
-  };
-  SignalRSendingJob.prototype.go = function () {
-    var ok = this.okToGo();
-    if (!ok.ok) {
-      return ok.val;
-    }
-    this.destroyable.sr.send('allexjs', this.data).then(
-			this.onSent.bind(this),
-			this.reject.bind(this)
-    );
-    return ok.val;
-  };
-  SignalRSendingJob.prototype.onSent = function (error) {
-    if (!this.okToProceed()) {
-      console.log('nok to proceed');
-      return;
-    }
-    if (error) {
-      this.reject(error);
-      return;
-    }
-    this.resolve(true);
-  };
-
-
-
-  return HttpTalker;
-
-}
-module.exports = createHttpTalker;
-
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],127:[function(require,module,exports){
-function createTalkerFactory (lib, signalR) {
-  'use strict';
-  var TalkerBase = require('./talkerbasecreator')(lib),
-    PingingTalker = require('./pingingtalkercreator')(lib, TalkerBase),
-    OuterClientBoundTalkerMixin = require('./outerclientboundtalkermixincreator')(lib),
-    InProcTalker = require('./inproc/talkercreator')(lib, TalkerBase),
-    tcpTalkerFactory = require('./socket/factorycreator')(lib, PingingTalker),
-    WSTalker = require('./ws/talkercreator')(lib, PingingTalker, OuterClientBoundTalkerMixin),
-    ProcessTalker = require('./process/talkercreator')(lib, TalkerBase),
-    HttpTalker = require('./http/talkercreator')(lib, TalkerBase, OuterClientBoundTalkerMixin, signalR);
-
-  function TalkerFactory(){
-  }
-  TalkerFactory.prototype.newInProcTalker = function (gate) {
-    return new InProcTalker(gate);
-  };
-  TalkerFactory.prototype.newProcessTalker = function (jstofork, options) {
-    return new ProcessTalker(jstofork, options);
-  };
-  TalkerFactory.prototype.newTcpTalker = function (socketoraddress, cborport, acceptor) {
-    return tcpTalkerFactory(socketoraddress, cborport, acceptor);
-  };
-  TalkerFactory.prototype.newWSTalker = function (connectionstring, address, port, defer) {
-    return new WSTalker(connectionstring, address, port, defer);
-  };
-  TalkerFactory.prototype.newHttpTalker = function (connectionstring, address, port, defer) {
-    return new HttpTalker(connectionstring, address, port, defer);
-  };
-
-  return TalkerFactory;
-}
-
-module.exports = createTalkerFactory;
-
-},{"./http/talkercreator":126,"./inproc/talkercreator":128,"./outerclientboundtalkermixincreator":129,"./pingingtalkercreator":130,"./process/talkercreator":131,"./socket/factorycreator":132,"./talkerbasecreator":136,"./ws/talkercreator":137}],128:[function(require,module,exports){
-function createInProcTalker(lib, TalkerBase) {
-  'use strict';
-
-  function InProcTalker(inprocgate) {
-    TalkerBase.call(this);
-    this.gate = inprocgate;
-    this.gateDestroyedListener = null;
-    if (!(this.gate && this.gate.service && this.gate.service.destroyed)) {
-      this.destroy();
-      return;
-    }
-    this.gateDestroyedListener = this.gate.service.destroyed.attach(this.onServiceDown.bind(this));
-  }
-  lib.inherit(InProcTalker, TalkerBase);
-  InProcTalker.prototype.__cleanUp = function () {
-    if (this.gateDestroyedListener) {
-      this.gateDestroyedListener.destroy();
-    }
-    this.gateDestroyedListener = null;
-    this.gate = null;
-    TalkerBase.prototype.__cleanUp.call(this);
-  };
-  InProcTalker.prototype.onServiceDown = function () {
-    if (this.gate) {
-      this.destroy();
-    }
-  };
-  InProcTalker.prototype.send = function (obj) {
-    if (!this.gate) {
-      return;
-    }
-    this.gate.processMessage(obj, this);
-  };
-  InProcTalker.prototype.type = 'inproc';
-
-  return InProcTalker;
-}
-
-module.exports = createInProcTalker;
-
-},{}],129:[function(require,module,exports){
-function createOuterClientBoundTalkerMixin (lib) {
-  function OuterClientBoundTalkerMixin (address, port, defer) {
-    this.address = address;
-    this.port = port;
-    this.defer = defer;
-    this.errorer = this.onBoundClientError.bind(this);
-  }
-  OuterClientBoundTalkerMixin.prototype.destroy = function () {
-    this.errorer = null;
-    this.defer = null;
-    this.port = null;
-    this.address = null;
-  };
-  OuterClientBoundTalkerMixin.prototype.onBoundClientError = function (error) {
-    var err;
-    if (!('code' in error)) {
-      err = new lib.NoServerError('ws',this.address,this.port);
-    } else {
-      switch(error.code){
-        case 'ENOTFOUND':
-          err = new lib.DestinationError('ws',this.address,this.port);
-          break;
-        case 'ECONNREFUSED':
-          err = new lib.NoServerError('ws',this.address,this.port);
-          break;
-        default:
-          //setTimeout(this.connect.bind(this),100);
-          err = error;
-          break;
-      }
-    }
-    if (this.defer) {
-      this.defer.reject(err);
-      this.defer = null;
-    }
-    this.unSetHandlers();
-    this.wsock = null;
-    if (err) {
-      this.destroy(err);
-    } else {
-      this.destroy();
-    }
-  };
-
-  OuterClientBoundTalkerMixin.addMethods = function (klass) {
-    lib.inheritMethods(klass, OuterClientBoundTalkerMixin, [
-      'onBoundClientError'
-    ]);
-  }
-
-  return OuterClientBoundTalkerMixin;
-}
-module.exports = createOuterClientBoundTalkerMixin;
-
-},{}],130:[function(require,module,exports){
-(function (process){(function (){
-function createPingingTalker(lib, TalkerBase) {
-  'use strict';
-
-  var q = lib.q,
-    PING_PERIOD = 10*lib.intervals.Second;
-
-  function pingponginitiator (pt, initiator) {
-    if (!pt) {
-      pt = null;
-      return;
-    }
-    if (initiator) {
-      pt.startNewSelfDestruction();
-      pt.processPong(Date.now()-5);
-      pt = null;
-      return;
-    }
-    pt.processPing();
-    pt = null;
-  }
-  function PingingTalker(initiator) {
-    if ('boolean' !== typeof initiator) {
-      console.trace();
-      process.exit(0);
-      return;
-    }
-    TalkerBase.call(this);
-    this.lastping = null;
-    this.destroyer = this.destroy.bind(this);
-    this.pinger = this.ping.bind(this);
-    this.pingfailer = this.onPingFailed.bind(this);
-    this.pingWaiter = null;
-    this.pingSender = null;
-    lib.runNext(pingponginitiator.bind(null, this, initiator));
-  }
-  lib.inherit(PingingTalker, TalkerBase);
-  PingingTalker.prototype.__cleanUp = function () {
-    if (this.pingSender) {
-      lib.clearTimeout(this.pingSender);
-    }
-    this.pingSender = null;
-    if (this.pingWaiter) {
-      lib.clearTimeout(this.pingWaiter);
-    }
-    this.pingWaiter = null;
-    this.pingfailer = null;
-    this.pinger = null;
-    this.destroyer = null;
-    this.lastping = null;
-    TalkerBase.prototype.__cleanUp.call(this);
-  }
-  PingingTalker.prototype.ping = function () {
-    if (!this.isUsable()) {
-      return;
-    }
-    //console.log(this.id, this.constructor.name, 'pinging with', this.clients.count, 'clients');
-    this.lastping = Date.now();
-    this.send(['?', this.lastping]);
-  };
-  PingingTalker.prototype.processPing = function (ping) {
-    if (this.pingWaiter) {
-      lib.clearTimeout(this.pingWaiter);
-    }
-    this.pingWaiter = lib.runNext(this.pingfailer, PING_PERIOD*2);
-    if (ping) {
-      this.send(['!', ping]);
-    }
-  };
-  PingingTalker.prototype.onPingFailed = function () {
-    console.error(new Date(), 'Ping miss!', this.type);
-    this.destroy();
-  };
-  PingingTalker.prototype.processPong = function (pong) {
-    var lag = Date.now()-pong,
-      next = PING_PERIOD-lag;
-    if (!this.isUsable()) {
-      return;
-    }
-    //console.log(this.id, this.constructor.name, 'got pong with', this.clients.count, 'clients');
-    if (next < 0) {
-      this.ping();
-      return;
-    }
-    this.pingSender = lib.runNext(this.pinger, next);
-  };
-  return PingingTalker;
-}
-
-module.exports = createPingingTalker;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],131:[function(require,module,exports){
-(function (process){(function (){
-var cp = require('child_process'),
-  os = require('os');
-
-function createProcessTalker(lib, TalkerBase) {
-  'use strict';
-  var not2json = {
-    'string': true,
-    'number': true,
-    'boolean': true
-  };
-  function setEnvVariable(env, variable, variablename) {
-    var tov = typeof variable;
-    //console.log(variable, 'is of type', tov);
-    if (tov in not2json) {
-      env[variablename] = variable;
-    } else if (tov === 'function') {
-      //nothing
-    } else {
-      env[variablename] = JSON.stringify(variable);
-    }
-  }
-  function ProcessTalker(jstofork, options) {
-    TalkerBase.call(this);
-    this.procq = new lib.Fifo();
-    this.destroyer = this.destroy.bind(this);
-    if (os.type() === 'Windows_NT'){
-      jstofork = jstofork.replace(/\//g,'\\');
-      if (jstofork.match(/^[^\\]\\/)){
-        jstofork = jstofork[0]+':'+jstofork.substring(1)
-      }
-    }
-    var args = [],
-      env = {parentProcessID: process.pid},
-      forkoptions = {env: env},
-      ea = [];
-    lib.traverse(process.env, setEnvVariable.bind(null, env));
-    /*
-    if (options) {
-      args.push.apply(args, options);
-    }
-    */
-    if (options) {
-      if (options.env) {
-        try {
-          var oe = JSON.parse(options.env);
-          lib.traverse(oe, setEnvVariable.bind(null, env));
-        } catch (ignore) {}
-      }
-      if (options.debug_brk) {
-        ea.push('--debug-brk=' + options.debug_brk);
-      } else if (options.debug) {
-        ea.push('--debug');
-      } else if (options.prof) {
-        ea.push('--prof');
-      }
-    }
-    forkoptions.execArgv=ea;
-    //console.log('forking', jstofork, args, require('util').inspect(forkoptions, {depth: 6}));
-    this.proc = cp.fork(jstofork, args, forkoptions);
-    this.incomer = this.onIncoming.bind(this);
-    this.proc.on('message', this.incomer);
-    this.proc.on('exit', this.destroyer);
-    this.established = false;
-  }
-  lib.inherit(ProcessTalker, TalkerBase);
-  ProcessTalker.prototype.__cleanUp = function () {
-    this.established = null;
-    if (this.destroyer) {
-      this.proc.removeListener('exit', this.destroyer);
-    }
-    if (this.incomer) {
-      this.proc.removeListener('message', this.incomer);
-    }
-    this.incomer = null;
-    this.proc = null;
-    this.destroyer = null;
-    this.procq.destroy();
-    this.procq = null;
-    TalkerBase.prototype.__cleanUp.call(this);
-  };
-  ProcessTalker.prototype.send = function (data) {
-    //console.log('ChildProcessClient sending', data);
-    if (!this.established) {
-      //console.log('unsuccessfully');
-      this.procq.push(data);
-      return;
-    }
-    if (this.proc.connected) {
-      //console.log('successfully');
-      this.dump();
-      this.proc.send(data);
-    }
-  };
-  ProcessTalker.prototype.onIncoming = function (message) {
-    var e, es, ec;
-    if (message.uncaughtException) {
-      es = message.uncaughtException.message;
-      ec = message.uncaughtException.code;
-      if (es.match('Cannot find module')) {
-        e = new Error(es);
-        e.code = 'MODULE_NOT_FOUND';
-      } else {
-        if (ec) {
-          e = new lib.Error(ec, es);
-        } else {
-          e = new Error(es);
-        }
-      }
-      this.destroy(e);
-      return;
-    }
-    if (!this.established) {
-      //console.log(this.proc.pid, 'ChildProcessClient', message);
-      this.established = (parseInt(message.child_init) === this.proc.pid);
-      //console.log('established', this.established, '(', this.proc.pid, ')');
-      if (this.established) {
-        this.dump();
-      }
-      return;
-    }
-    TalkerBase.prototype.onIncoming.call(this, message);
-  };
-  ProcessTalker.prototype.dump = function () {
-    this.procq.drain(this.proc.send.bind(this.proc));
-    //this.procq.drain(this.drainer.bind(this));
-  };
-  ProcessTalker.prototype.drainer = function (item) {
-    console.log('need to send', arguments);
-    this.proc.send(item);
-  };
-
-  return ProcessTalker;
-}
-
-module.exports = createProcessTalker;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332,"child_process":238,"os":318}],132:[function(require,module,exports){
-(function (process){(function (){
-function createSocketTalkerFactory(lib, TalkerBase) {
-  'use strict';
-  var SocketTalkerBase = require('./talkercreator')(lib, TalkerBase),
-    InetTalker = require('./inettalkercreator')(lib, SocketTalkerBase),
-    UnixTalker = require('./unixtalkercreator')(lib, SocketTalkerBase);
-
-  function factory(socket, cb, acceptor) {
-    if (!(acceptor === true || acceptor === false)) {
-      console.trace();
-      process.exit(0);
-    }
-    if (!socket.remoteAddress) {
-      return new UnixTalker(socket, cb, acceptor);
-    } else {
-      return new InetTalker(socket, cb, acceptor);
-    }
-  }
-
-  return factory;
-}
-
-module.exports = createSocketTalkerFactory;
-
-}).call(this)}).call(this,require('_process'))
-},{"./inettalkercreator":133,"./talkercreator":134,"./unixtalkercreator":135,"_process":332}],133:[function(require,module,exports){
-function createInetTalker(lib, PingingTalker) {
-  'use strict';
-  function InetTalker(socket, cb, acceptor) {
-    PingingTalker.call(this, socket, cb, acceptor);
-    this.endSent = false;
-    this.ender = this.onOtherSideClosed.bind(this);
-    if (!acceptor) {
-      this.socket.setKeepAlive(true, this.KEEP_ALIVE_INTERVAL);
-    }
-    socket.on('end',this.ender);
-  }
-  lib.inherit(InetTalker, PingingTalker);
-  InetTalker.prototype.__cleanUp = function () {
-    this.endSent = false;
-    PingingTalker.prototype.__cleanUp.call(this);
-  };
-  InetTalker.prototype.detachFromSocket = function () {
-    if (this.socket) {
-      this.socket.removeListener('end',this.ender);
-    }
-    this.ender = null;
-    PingingTalker.prototype.detachFromSocket.call(this);
-  };
-  InetTalker.prototype.disposeOfSocket = function () {
-    if (this.socket && this.endSent === false) {
-      this.endSent = true;
-      this.log('will dispose of the socket on', this.socket.address());
-      this.socket.end();
-    }
-  };
-  InetTalker.prototype.onOtherSideClosed = function () {
-    this.log('onOtherSideClosed');
-    this.socket.destroy();
-  };
-  InetTalker.prototype.subType = 'inet';
-
-  return InetTalker;
-}
-
-module.exports = createInetTalker;
-
-},{}],134:[function(require,module,exports){
-(function (Buffer){(function (){
-function dump(obj){
-  return require('util').inspect(obj,{depth:null});
-}
-function createTalker(lib, PingingTalker){
-  'use strict';
-  var Fifo = lib.Fifo, StringBuffer = lib.StringBuffer;
-  function Talker(socket,cb,acceptor){
-    PingingTalker.call(this, !acceptor);
-    this.lenBuf = new Buffer(4);
-    this.lenBufread = 0;
-    this.bytesToRead = -1;
-    this.dataRead = '';
-    this.sendingQueue = '';
-    this.sending = false;
-    this.sendingBuffs = new Fifo();
-    this.dataCursor = 0;
-    this.incomingData = new Fifo();
-    this.currentData = null;
-    this.acceptor = acceptor;
-    this.socket = socket;
-    this.dataHandler = this.onData.bind(this);
-    this.drainHandler = this.sendMore.bind(this);
-    this.invalidator = this.onSocketUnusable.bind(this);
-    this.errorer = this.onSocketError.bind(this);
-    this.incomingDispatcher = this.onIncomingDispatcher.bind(this);
-    this.sendingBuffsDrainerBound = this.sendingBuffsDrainer.bind(this);
-    this.processDataBound = this.processData.bind(this);
-    this.socket.setNoDelay(true);
-    //if (acceptor) {
-      this.socket.setTimeout(5*this.KEEP_ALIVE_INTERVAL);
-    //}
-    socket.on('data',this.dataHandler);
-    socket.on('drain',this.drainHandler);
-    socket.on('error',this.errorer);
-    socket.on('close',this.invalidator);
-    this.cb = cb;
-    //this.log('new SocketTalker', acceptor);
-  };
-  lib.inherit(Talker,PingingTalker);
-  Talker.prototype.__cleanUp = function(){
-    //this.log('dying');
-    this.cb = null;
-    this.detachFromSocket();
-    this.processDataBound = null;
-    this.sendingBuffsDrainerBound = null;
-    this.incomingDispatcher = null;
-    this.errorer = null;
-    this.invalidator = null;
-    this.drainHandler = null;
-    this.dataHandler = null;
-    this.currentData = null;
-    if(this.incomingData){
-      this.incomingData.destroy();
-    }
-    this.incomingData = null;
-    this.acceptor = null;
-    this.dataCursor = null;
-    if(this.sendingBuffs){
-      this.sendingBuffs.destroy();
-    }
-    this.sendingBuffs = null;
-    this.sending = null;
-    /*
-    if(this.sendingQueue){
-      this.sendingQueue.destroy();
-    }
-    */
-    this.sendingQueue = null;
-    this.dataRead = null;
-    this.bytesToRead = null;
-    this.lenBufread = null;
-    this.lenBuf = null;
-    PingingTalker.prototype.__cleanUp.call(this);
-  };
-  Talker.prototype.dyingCondition = function () {
-    if (this.socket) {
-      if (!(this.socket.writable && this.socket.readable)) {
-        return true;
-      }
-    }
-    if (this.sendingQueue !== null && this.sendingBuffs && this.sendingQueue.length < 1 && this.sendingBuffs.length < 1) {
-      //this.log('disposeOfSocket');
-      this.disposeOfSocket();
-    }
-    if (this.socket) {
-      //this.log('cannot die bc of socket');
-      return false;
-    }
-    return PingingTalker.prototype.dyingCondition.call(this);
-  };
-  Talker.prototype.isUsable = function () {
-    if (!PingingTalker.prototype.isUsable.call(this)) {
-      return false;
-    }
-    if (!this.socket) {
-      return false;
-    }
-    if (!this.socket.readable) {
-      return false;
-    }
-    if (!this.socket.writable) {
-      return false;
-    }
-    return true;
-  };
-  Talker.prototype.detachFromSocket = function () {
-    if(this.socket){
-      //this.log('detaching from socket');
-      //console.log('removing listeners', this.destroyed.collection.length, 'my listeners');
-      this.socket.removeListener('data',this.dataHandler);
-      this.socket.removeListener('drain',this.drainHandler);
-      this.socket.removeListener('error',this.errorer);
-      this.socket.removeListener('close',this.invalidator);
-    }
-    this.socket = null;
-    this.errorer = null;
-    this.invalidator = null;
-    this.dataHandler = null;
-    this.drainHandler = null;
-  };
-  Talker.prototype.onSocketError = function (error) {
-    //this.log('onSocketError', error);
-    this.onSocketUnusable(error);
-  };
-  Talker.prototype.onSocketUnusable = function () {
-    //console.log('onSocketUnusable', this.destroyed.collection.length, 'my listeners', arguments);
-    //this.log('socket down', --_count);
-    var s = this.socket;
-    this.detachFromSocket();
-    if (s) {
-      //console.trace();
-      //console.log(this.id, this.constructor.name, this.acceptor ? 'acceptor':'initiator', 'destroying socket');
-      s.destroy();
-    }
-    this.destroy();
-  };
-  Talker.prototype.handleDataRead = function(){
-    var items, eq, dr;
-    if(!this.incomingDispatcher) {
-      return;
-    }
-    if(this.dataRead){
-      dr = this.dataRead;
-      this.dataRead = '';
-      StringBuffer.consumeString(dr, this.incomingDispatcher, true);
-    }
-    this.processData(this.currentData,this.dataCursor);
-  };
-  Talker.prototype._internalSend = function(buf){
-    if(!this.socket){
-      //console.log(this.__id,'got out because there is no socket');
-      return;
-    }
-    if(!this.sendingQueue.length){
-      //console.log(this.__id,'got out because there is nothing to send');
-      return;
-    }
-    if(this.sending){
-      //console.log(this.__id,'got out because I am already sending');
-      return;
-    }
-    var sq = this.sendingQueue;
-    this.sendingQueue = '';
-    this.bufferize(sq);
-    this.sending = true;
-    this.sendMore();
-  };
-  Talker.prototype.onIncomingDispatcher = function (item) {
-    if (!(lib.isArray(item) && item.length>0)) {
-      return;
-    }
-    if (this.cb) {
-      this.cb(this, item);
-    } else {
-      this.onIncoming(item);
-    }
-  };
-  Talker.prototype.bufferize = function(sq){
-    /*
-    var sqblen = Buffer.byteLength(sq, 'utf8'),
-      sqb = new Buffer(sqblen+4);
-    sqb.write(sq, 4, sqblen, 'utf8');
-    sqb.writeUInt32LE(sqblen,0);
-    this.sendingBuffs.push(sqb);
-    */
-    var sqblen = Buffer.byteLength(sq, 'utf8'),
-        sqlb = new Buffer(4);
-    sqlb.writeUInt32LE(sqblen, 0);
-    this.sendingBuffs.push(sqlb);
-    this.sendingBuffs.push(sq);
-  }
-  Talker.prototype.send = function(obj){
-    if(!lib.isString(this.sendingQueue)){
-      //this.log('rejecting',dump(obj));
-      return;
-    }
-    if (this.sendingQueue.length) {
-      this.sendingQueue += String.fromCharCode(0);
-    }
-    this.sendingQueue += JSON.stringify(obj);
-    this._internalSend();
-  };
-  Talker.prototype.sendingBuffsDrainer = function (b) {
-    this.sendingLength = b.length;
-    //console.log('writing',b.toString());
-    //console.log('Talker', this.id, 'writing');
-    if (lib.isString(b)) {
-      if (this.socket.write(b, 'utf8')){
-        this.sendMore();
-      }
-    } else {
-      if(this.socket.write(b)){
-        this.sendMore();
-      }
-    }
-  };
-  Talker.prototype.sendMore = function(){
-    if(!this.sendingBuffs){
-      //console.log('cannot sendMore, no sendingBuffs');
-      return;
-    }
-    if(!this.sendingBuffs.length){
-      //console.log('sendingBuffs are empty');
-      this.sending = false;
-      this.maybeDie();
-    }else{
-      if(this.socket && this.socket.writable && this.sendingBuffsDrainerBound){
-        this.sendingBuffs.pop(this.sendingBuffsDrainerBound);
-      }else{
-        //console.log('not writing, socket',this.socket,'is not writable');
-      }
-    }
-    this._internalSend();
-  };
-
-  Talker.prototype.onData = function (data) {
-    this.processData(data);
-  };
-  Talker.prototype.processData = function(data,offset){
-    if(!this.socket){return;}
-    var i=(offset||0);
-    if((this.currentData && data!==this.currentData) || (i!==this.dataCursor)){
-      //console.log(i,'<>',this.dataCursor);
-      this.incomingData.push(data);
-      return;
-    }
-    this.currentData = data;
-    //console.log('data',data.length,'long, reading from',i);
-    for(; (this.bytesToRead<0)&&(i<data.length)&&(this.lenBufread<4); i++,this.lenBufread++){
-      this.lenBuf[this.lenBufread] = data[i];
-      //console.log(this.lenBuf);
-    }
-    if(this.bytesToRead<0){
-      if(this.lenBufread!==4){
-        this.currentData = null;
-        this.dataCursor=0;
-        if(this.incomingData.length){
-          this.processData(this.incomingData.shift());
-        }
-        this.maybeDie();
-        return;
-      }
-      this.bytesToRead = this.lenBuf.readUInt32LE(0);
-    }else{
-      //console.log('still',this.bytesToRead);
-    }
-    //console.log('should read',this.bytesToRead,'bytes');
-    var canread = (data.length-i);
-    if(canread>this.bytesToRead){
-      canread=this.bytesToRead;
-    }
-    this.dataRead+=data.toString('utf8',i,i+canread);
-    this.bytesToRead-=canread;
-    i+=canread;
-    this.dataCursor = i;
-    if(this.bytesToRead===0){
-      this.bytesToRead=-1;
-      this.lenBufread=0;
-      this.handleDataRead();
-      //this.unzip.end();
-    }else{
-      //console.log('at',i,'data is',data.length,'long, now what?');
-      if(i===data.length){
-        this.currentData = null;
-        this.dataCursor=0;
-        if(this.incomingData.length){
-          this.incomingData.pop(this.processDataBound);
-        }
-      }else{
-        this.processData(data,i);
-      }
-    }
-  };
-    /*
-  Talker.prototype.log = function () {
-    var args = Array.prototype.slice.call(arguments, 0);
-    args.unshift(this.id);
-    args.unshift(this.subType);
-    args.unshift(this.acceptor ? 'acceptor' : 'initiator');
-    args.unshift(process.pid+'');
-    console.log.apply(console, args);
-  };
-    */
-  Talker.prototype.type = 'socket';
-  Talker.prototype.KEEP_ALIVE_INTERVAL = 1*lib.intervals.Second;
-  return Talker;
-}
-
-module.exports = createTalker;
-
-}).call(this)}).call(this,require("buffer").Buffer)
-},{"buffer":240,"util":380}],135:[function(require,module,exports){
-function createUnixTalker(lib, PingingTalker) {
-  'use strict';
-  function UnixTalker(socket, cb, acceptor) {
-    PingingTalker.call(this, socket, cb, acceptor);
-    this.endSent = false;
-  }
-  lib.inherit(UnixTalker, PingingTalker);
-  UnixTalker.prototype.__cleanUp = function () {
-    this.endSent = null;
-    PingingTalker.prototype.__cleanUp.call(this);
-  };
-  UnixTalker.prototype.disposeOfSocket = function () {
-    if (this.socket) {
-      this.socket.end();
-    }
-  };
-  UnixTalker.prototype.parsePDU = function (result, item) {
-    if (lib.isString(item) && item === '-') {
-      if (this.invalidator) {
-        this.invalidator();
-      }
-      return result;
-    }
-    return PingingTalker.prototype.parsePDU.call(this, result, item);
-  };
-  UnixTalker.prototype.detachFromSocket = function () {
-    if (this.socket && this.socket.writable) {
-      if (this.endSent === false) {
-        this.endSent = true;
-        this.send('-');
-      }
-    }
-    PingingTalker.prototype.detachFromSocket.call(this);
-  };
-  UnixTalker.prototype.subType = 'unix';
-  return UnixTalker;
-}
-
-module.exports = createUnixTalker;
-
-},{}],136:[function(require,module,exports){
-(function (process){(function (){
-function createTalkerBase(lib) {
-  'use strict';
-
-  var q = lib.q,
-    PING_PERIOD = 10*lib.intervals.Second;
-
-  function TalkerDestructor (talker) {
-    this.talker = talker;
-    this.counter = 0;
-    this.check();
-  }
-  TalkerDestructor.prototype.destroy = function () {
-    this.counter = null;
-    this.talker = null;
-  };
-  TalkerDestructor.prototype.check = function () {
-    if (!this.talker) {
-      return;
-    }
-    if (!this.talker.clients) {
-      return;
-    }
-    if (this.talker.clients.count>0) {
-      this.destroy();
-      return;
-    }
-    this.counter++;
-    if (this.counter>2) {
-      //console.log('TalkerDestructor destroying', this.talker.id);
-      this.talker.destroy();
-      this.destroy();
-      return;
-    }
-    //console.log('TalkerDestructor destroying NOT', this.talker.id, 'because counter', this.counter);
-    lib.runNext(this.check.bind(this), PING_PERIOD);
-  };
-  var _id = 0;
-  function TalkerBase() {
-    /*
-    this.id = process.pid+'_'+(++_id);
-    //console.trace();
-    console.log('new', this.constructor.name, this.id);
-    this.logEnabled = false;
-    */
-    lib.ComplexDestroyable.call(this);
-    this.clients = new lib.Map();
-    this.pendingDefers = new lib.DeferMap();
-    this.futureOOBs = new lib.Map();
-    this.destructor = null;
-  }
-  lib.inherit(TalkerBase, lib.ComplexDestroyable);
-  TalkerBase.prototype.__cleanUp = function () {
-    var futures = this.futureOOBs, pendingDefers = this.pendingDefers, clients = this.clients; 
-    this.futureOOBs = null;
-    this.pendingDefers = null;
-    this.clients = null;
-    if (this.pingWaiter) {
-      lib.clearTimeout(this.pingWaiter);
-    }
-    if (futures) {
-      lib.containerDestroyAll(futures);
-      futures.destroy();
-    }
-    if (pendingDefers) {
-      pendingDefers.destroy();
-    }
-    if (clients) {
-      lib.containerDestroyAll(clients);
-      clients.destroy();
-    }
-    lib.ComplexDestroyable.prototype.__cleanUp.call(this);
-  };
-  function deathTeller(client, session) {
-    client.onOOBData([session, '-', true]);
-  }
-  TalkerBase.prototype.startTheDyingProcedure = function () {
-    this.clients.traverse(deathTeller);
-  };
-  /*
-  function sessionprinter(client, session) {
-    console.log(session);
-  }
-  */
-  TalkerBase.prototype.dyingCondition = function () {
-    if (!this.clients) {
-      return true;
-    }
-    //console.log('TalkerBase', this.id, this.clients.count > 0 ? 'cannot' : 'can', 'die', this.clients.count);
-    //this.clients.traverse(sessionprinter);
-    if (this.clients.count < 1) {
-      this.log(this.id, process.pid, 'can die', this.clients.count);
-    }
-    return this.clients.count < 1;
-  };
-  TalkerBase.prototype.isUsable = function () {
-    return !!this.clients;
-  };
-  TalkerBase.prototype.add = function (client) {
-    if (this.__dying) {
-      console.error('already dying, cannot add more Clients');
-      if (this.__dyingException) {
-        return q.reject(this.__dyingException);
-      } else {
-        return q(null);
-      }
-    }
-    if (!client.identity) {
-      return q(null);
-    }
-    var cid = lib.uid();
-    client.identity.talkerid = cid;
-    this.clients.add(cid, client);
-    if (this.destructor) {
-      this.destructor.destroy();
-    }
-    this.destructor = null;
-    //console.log(this.id, 'after add has', this.clients.count, 'clients');
-    this.log(this.id, process.pid, 'adding', cid, this.clients.count, this.clients.get(cid) ? 'ok' : 'nok');
-    return this.transfer(client, null, true).then(
-      this.onClientIntroduced.bind(this,cid)
-    );
-  };
-  TalkerBase.prototype.remove = function (client) {
-    if (!this.clients) {
-      return;
-    }
-    if (!client.identity.talkerid) {
-      return;
-    }
-    var c = this.clients.remove(client.identity.talkerid);
-    //console.log(this.id, 'after remove has', this.clients.count, 'clients');
-    if (!c) {
-      console.trace();
-      console.error(process.pid, 'nothing on', this.id, 'for', client.identity.talkerid);
-      console.error(this.clients.count, 'current clients');
-      console.error(client);
-    }
-    this.maybeDie();
-    this.startNewSelfDestruction();
-  };
-  TalkerBase.prototype.startNewSelfDestruction = function () {
-    if (!(this.destructor && this.destructor.talker === this)) {
-      this.destructor = new TalkerDestructor(this);
-    }/* else {
-      console.log('did NOT start new TalkerDestructor because I already have', this.destructor);
-    }*/
-  };
-  TalkerBase.prototype.onClientIntroduced = function (cid, introduce) {
-    var c, future;
-    if (!this.clients) {
-      return;
-    }
-    if (introduce && introduce.session) {
-      c = this.clients.remove(cid);
-      if (c) {
-        future = this.futureOOBs.remove(introduce.session);
-        c.identity.talkerid = introduce.session;
-        this.clients.add(introduce.session, c);
-        if (future) {
-          future.drain(c.onOOBData.bind(c));
-          c = null;
-          future.destroy();
-        }
-      } else {
-        console.error('no client for', cid, '?');
-      }
-      return introduce;//q(introduce);
-    } else {
-      c = this.clients.get(cid);
-      if (c) {
-        c.onOOBData([cid, '-', true]);
-      }
-    }
-  };
-  TalkerBase.prototype.transfer = function(client, content, introduce){
-    var did = lib.uid(),
-      d = this.pendingDefers.defer(did),
-      tia = client.identity.toIntroduceArray();
-    if (introduce) {
-      //console.log('+++', did, 'introduce');
-      this.send([did, tia]);
-    } else {
-      /*
-      try {
-        //console.log('+++', did, JSON.stringify(content), 'from', tia);
-      }
-      catch (e) {
-        //console.log('+++', did, 'some internal object');
-      }
-      //this.reportDefers(did);
-      */
-      this.send([did, tia, content]);
-    }
-    return d.promise;
-  };
-  TalkerBase.prototype.onIncoming = function(incoming){
-    //console.log('onIncoming', incoming);
-    var oob, oobsession, client, future, clientid;
-    if (!(this.pendingDefers && this.clients)) {
-      return;
-    }
-    if(!lib.isArray(incoming)){
-      console.log(this.type, 'rejecting', incoming);
-      return;
-    }
-    if (incoming[0] === '?') {
-      console.log(incoming);
-    }
-    switch(incoming[0]) {
-      case 'r': 
-        if (incoming[1] === '?') {
-          console.trace();
-          console.log(process.pid, this.subType, 'wtf?', incoming);
-        }
-        var pdc;
-        if (incoming[2] === 'dead') {
-          pdc = this.pendingDefers._map.count;
-        }
-        //console.log('---', incoming[1]);
-        this.pendingDefers.resolve(incoming[1], incoming[2]);
-        /*
-        this.reportDefers('after resolve '+incoming[1]);
-        if (incoming[2] === 'dead' && this.pendingDefers._map.count !== pdc-1) {
-          console.log('Defer', incoming[1], 'was not resolved');
-          process.exit(1);
-        }
-        */
-        break;
-      case 'e':
-        //console.log('---', incoming[1]);
-        this.pendingDefers.reject(incoming[1], incoming[2]);
-        //this.reportDefers('after reject '+incoming[1]);
-        break;
-      case 'n':
-        this.pendingDefers.notify(incoming[1], incoming[2]);
-        break;
-      case 'oob':
-        oob = incoming[1];
-        oobsession = oob[0];//oob['.'];
-        client = this.clients.get(oobsession);
-        if (client) {
-          if (client.identity.talkerid !== oobsession) {
-            console.error(client.identity.talkerid, '<>', oobsession, '?');
-          }
-          client.onOOBData(oob);
-        } else {
-          future = this.futureOOBs.get(oobsession);
-          if (!future) {
-            future = new lib.Fifo();
-            this.futureOOBs.add(oobsession, future);
-          }
-          future.push(oob);
-        }
-        break;
-      case '?':
-        console.log('pong?', incomming);
-        this.send(['!', incoming[1]]);
-        break;
-      case '!':
-        this.processPong(incoming[1]);
-        break;
-      case 'f':
-        //console.log('should forget', incoming[1]);
-        clientid = incoming[1] && incoming[1][1] && incoming[1][1][0] ? incoming[1][1][0] : null;
-        if (clientid) {
-          client = this.clients.get(clientid);
-          if (client) {
-            client.onOOBData([clientid, '-', true]);
-          }
-        }
-        if (incoming[1] && incoming[1][0]) {
-          this.pendingDefers.reject(incoming[1][0], new lib.Error('CLIENT_SHOULD_FORGET', 'Session ID not recognized on the server side, forget yourself'));
-        }
-        break;
-      default:
-        console.log('not processed', incoming);
-        break;
-    }
-    //this.onIncomingExecResult(incomingunit);
-  };
-  var _reportDefersThreshold = 20;
-  TalkerBase.prototype.reportDefers = function (title) {
-    //return;
-    if (this.pendingDefers && this.pendingDefers._map && this.pendingDefers._map.count>=_reportDefersThreshold) {
-      console.log(this.constructor.name, title, this.pendingDefers._map.count, 'defers');
-    }
-    /*
-    */
-  };
-  TalkerBase.prototype.enableLogging = function () {
-    this.logEnabled = true;
-    var c = this.clients, ca = this.clients.add, cr = this.clients.remove, t = this;
-    this.clients.add = function (key) {
-      t.log('adding', key);
-      return ca.apply(c, arguments);
-    };
-    this.clients.remove = function (key) {
-      t.log('removing', key);
-      return cr.apply(c, arguments);
-    };
-  };
-  TalkerBase.prototype.log = function () {
-    if (this.logEnabled) {
-      var args = [process.pid, this.id].concat(Array.prototype.slice.call(arguments,0));
-      console.log.apply(console, args);
-    }
-  };
-
-  return TalkerBase;
-}
-
-module.exports = createTalkerBase;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],137:[function(require,module,exports){
-(function (process){(function (){
-function createWSTalker(lib, PingingTalker, OuterClientBoundTalkerMixin) {
-  'use strict';
-  var _WebSocket, StringBuffer = lib.StringBuffer;
-  if ('undefined' !== typeof window) {
-    if (window.WebSocket) {
-      _WebSocket = window.WebSocket;
-    } else {
-      throw Error('No WebSocket support from the Browser');
-    }
-  } else {
-    _WebSocket = lib.ws;
-  }
-  function dump(data) {
-    return data; //needs more work for the `browserify` in order to use require('util') in the NodeJS case
-  }
-  function WSTalker(connectionstring, address, port, defer){
-    PingingTalker.call(this, true);
-    OuterClientBoundTalkerMixin.call(this, address, port, defer);
-    try{
-    this.connectionstring = connectionstring;
-    this.wsock = new _WebSocket(connectionstring);
-    this.sendchecker = this.onSend.bind(this);
-    this.messager = this.onMessage.bind(this);
-    this.opener = defer.resolve.bind(defer, this);
-    this.closer = this.onWSClosed.bind(this);
-    this.onincomer = this.forIncoming.bind(this);
-    this.setHandlers();
-    }
-    catch(e){
-      console.error(e.stack);
-      console.error(e);
-      this.destroy(e);
-    }
-  }
-  lib.inherit(WSTalker, PingingTalker);
-  OuterClientBoundTalkerMixin.addMethods(WSTalker);
-  WSTalker.prototype.__cleanUp = function () {
-    if(this.wsock){
-      this.wsock.close();
-      this.unSetHandlers();
-    }
-    this.onincomer = null;
-    this.closer = null;
-    this.opener = null;
-    this.messager = null;
-    this.sendchecker = null;
-    this.wsock = null;
-    OuterClientBoundTalkerMixin.prototype.destroy.call(this);
-    PingingTalker.prototype.__cleanUp.call(this);
-  };
-  WSTalker.prototype.setHandlers = function(){
-    this.wsock.on('error',this.errorer);
-    this.wsock.on('message',this.messager);
-    this.wsock.on('open',this.opener);
-    this.wsock.on('close',this.closer);
-  };
-  WSTalker.prototype.unSetHandlers = function(){
-    if (!this.wsock) {
-      return;
-    }
-    this.wsock.removeListener('error', this.errorer);
-    this.wsock.removeListener('message', this.messager);
-    this.wsock.removeListener('open', this.opener);
-    this.wsock.removeListener('close', this.closer);
-    this.wsock = null;
-  };
-  WSTalker.prototype.onSend = function (error) {
-    if (error) {
-      console.error(process.pid, this.address, this.port, 'WSTalker send error', error);
-    }
-  };
-  WSTalker.prototype.onWSClosed = function(){
-    console.log(process.pid, this.address, this.port, 'WSTalker closing');
-    this.unSetHandlers();
-    this.destroy(new lib.NoServerError('ws',this.address,this.port));
-  };
-  WSTalker.prototype.send = function(data){
-    var jsondata;
-    if (!this.wsock) {
-      return;
-    }
-    try {
-      jsondata = JSON.stringify(data);
-    } catch(e) {
-      console.error('could not stringify', dump(data));
-      return;
-    }
-    this.sendRaw(jsondata);
-  };
-  WSTalker.prototype.sendRaw = function (raw) {
-    try {
-      this.wsock.send(raw, this.sendchecker);
-    } catch(e) {
-      //console.error(e.stack);
-      //console.error('WSTalker tried to send data over a WebSocket, but got',e);
-      /*
-      */
-      this.onError(e);
-    }
-  };
-  WSTalker.prototype.onMessage = function(message){
-    StringBuffer.consumeString(message, this.onincomer);
-  };
-  WSTalker.prototype.forIncoming = function (message){
-    var m;
-    try{
-      m = JSON.parse(message);
-    }
-    catch(e){
-      console.error(e.stack);
-      console.error(e);
-      this.dieExceptionally(e);
-      return;
-    }
-    if (!m) {
-      console.error('Y NO MESSAGE?');
-      return;
-    }
-    //console.log('WSTalker got', m);
-    this.onIncoming(m);
-  };
-  WSTalker.prototype.type = 'ws';
-
-  function ServerWSTalker(connectionstring,address,port,defer){
-    WSTalker.call(this,connectionstring,address,port,defer);
-    this.sending = false;
-    this.buffer = new StringBuffer();
-  }
-  lib.inherit(ServerWSTalker, WSTalker);
-  ServerWSTalker.prototype.__cleanUp = function () {
-    this.sending = null;
-    if (this.buffer) {
-      this.buffer.destroy();
-    }
-    this.buffer = null;
-    WSTalker.prototype.__cleanUp.call(this);
-  };
-  ServerWSTalker.prototype.onSend = function (error) {
-    this.sending = false;
-    WSTalker.prototype.onSend.call(this,error);
-    if (this.buffer && this.buffer.hasContents()) {
-      this.sendBuffer();
-    }
-  };
-  var _zeroString = String.fromCharCode(0);
-  ServerWSTalker.prototype.send = function (data) {
-    var jd;
-    if (this.sending === null) {
-      console.log('no this.sending, NOT sending', data);
-      return;
-    }
-    if (!this.wsock) { //ok, just in case
-      console.log('no this.wsock, NOT sending', data);
-      return;
-    }
-    if (!this.buffer) {
-      console.log('no this.buffer, NOT sending', data);
-      return;
-    }
-    try {
-      jd = JSON.stringify(data);
-    } catch(e) {
-      console.error('could not stringify', dump(data));
-      return;
-    }
-    this.buffer.add(jd);
-    if (this.sending === false) {
-      this.sendBuffer();
-    }
-  };
-  ServerWSTalker.prototype.sendBuffer = function () {
-    this.sending = true;
-    this.buffer.get(this.sendRaw.bind(this));
-  };
-
-  function BrowserWSTalker(connectionstring,address,port,defer){
-    WSTalker.call(this,connectionstring,address,port,defer);
-  }
-  lib.inherit(BrowserWSTalker, WSTalker);
-
-  BrowserWSTalker.prototype.setHandlers = function () {
-    this.wsock.onerror=this.errorer;
-    this.wsock.onmessage=this.messager;
-    this.wsock.onopen=this.opener;
-    this.wsock.onclose=this.closer;
-  };
-  BrowserWSTalker.prototype.unSetHandlers = function(){
-    if (!this.wsock) {
-      return;
-    }
-    this.wsock.onerror = null;
-    this.wsock.onmessage = null;
-    this.wsock.onopen = null;
-    this.wsock.onclose = null;
-    this.wsock = null;
-  };
-  BrowserWSTalker.prototype.onMessage = function(message){
-    WSTalker.prototype.onMessage.call(this, message.data);
-  };
-
-  return 'undefined' === typeof window ? ServerWSTalker : BrowserWSTalker;
-}
-
-module.exports = createWSTalker;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],138:[function(require,module,exports){
-function createLoadDeps(execlib) {
-  'use strict';
-
-  var lib = execlib.lib,
-    q = lib.q,
-    qlib = lib.qlib;
-
-  function dodaThrow (lib, string1, string2) {
-    throw new lib.Error(string1, string2);
-  }
-
-  function getmodulename (side, modulename) {
-    return recognizemodule.bind(null, side, modulename);
-  }
-
-  function recognizemodule (side, modulename) {
-    var r;
-    switch (modulename) {
-      case '.':
-        r = q({
-          modulename: '.',
-          group: 'services'
-        });
-        break;
-      case '.authentication':
-        r = q({
-          modulename: '.authentication',
-          group: 'services'
-        });
-        break;
-      default: 
-        r = lib.moduleRecognition(modulename);
-        break;
-    }
-    return r.then(onmodulename.bind(null, side, modulename));
-  };
-
-  function onAdditionalGroup (r) {
-    var registry = execlib.execSuite && execlib.execSuite.additionalRegistries && execlib.execSuite.additionalRegistries.get(r.group);
-    if (registry) {
-      return registry.register(r.modulename);
-    }
-    console.error('Unable to load registry for type '+r.group);
-    dodaThrow(lib, 'MISSING_REGISTRY', 'Unable to load registry for type '+r.group);
-  }
-
-  function onmodulename (side, modulename, r) {
-    var registry;
-    try {
-    if (!r || lib.isString(r)) dodaThrow(lib, 'NON_ALLEX_MODULE', 'Unable to recognize '+modulename+' as Allex module');
-    switch (r.group) {
-      case 'services':
-        registry = execlib.execSuite.registry;
-        if (side === 'server') {
-          return registry.registerServerSide(r.modulename);
-        }
-        if (side === 'client') {
-          return registry.registerClientSide(r.modulename);
-        }
-        throw lib.Error('INVALID_LOAD_DEPENDENCIES_SIDE', side);
-        break;
-      case 'libs':
-        return execlib.execSuite.libRegistry.register(r.modulename);
-      default:
-        return onAdditionalGroup(r);
-    }
-    } catch(e) {
-      console.error(e.stack);
-      console.error(e);
-    }
-  }
-
-  function loadDependencies (side, modules, cb){
-    var s = side, ret;
-    ret = (new qlib.PromiseExecutionMapReducerJob(modules.map (getmodulename.bind(null, s)), null, cb)).go();
-    s = null;
-    return ret;
-  }
-  return loadDependencies;
-}
-
-module.exports = createLoadDeps;
-
-},{}],139:[function(require,module,exports){
-function createDependentMethod(lib) {
-  'use strict';
-  var q = lib.q;
-
-  function InvokerWaiter(instance, multis, args, invoker) {
-    this.instance = instance;
-    this.args = args;
-    this.invoker = invoker;
-    this.satisfaction = lib.ListenableMap.multiListenForMulti(multis, this.onOK.bind(this));
-    this.satisfaction.trigger();
-  }
-  InvokerWaiter.prototype.destroy = function () {
-    if (this.satisfaction) {
-      this.satisfaction.destroy();
-    }
-    this.satisfaction = null;
-    this.invoker = null;
-    this.args = null;
-    this.instance = null;
-  };
-  InvokerWaiter.prototype.onOK = function (all) {
-    if (!this.invoker) {
-      return;
-    }
-    this.invoker.apply(this.instance,all.concat(this.args));
-    this.destroy();
-  };
-
-  function superinvoker(func) {
-    return function () {
-      var ret = func.apply(this, arguments);
-      if (!q.isPromise(ret)) {
-        return q.reject(new lib.Error('PARAMETERS_LENGTH_MISMATCH'));
-      }
-      return ret;
-    }
-  }
-
-  function mapFetcher(name) {
-    var names = name.split('.'), mapobj = {ctx: this, map: null}, ret;
-    names.forEach(function(n){
-      if (mapobj.ctx) {
-        mapobj.map = mapobj.ctx[n];
-        mapobj.ctx = mapobj.map;
-      }
-    });
-    ret = mapobj.map;
-    mapobj.ctx = null;
-    mapobj.map = null;
-    mapobj = null;
-    return ret;
-  }
-
-  function resolvedMulti(sm) {
-    return {map: mapFetcher.call(this, sm.mapname), names: sm.names.slice()};
-  }
-
-  function resolvemaps(symbolicmultis){
-    return symbolicmultis.map(resolvedMulti.bind(this));
-  }
-
-  function nameslength(result, multi) {
-    return result + multi.names.length;
-  }
-
-  function dependentMethod (symbolicmultis, func) {
-    var multinameslen = symbolicmultis.reduce(nameslength,0),
-      outerparamcount = func.length-multinameslen;
-    if (outerparamcount<1) {
-      throw new lib.Error('INVALID_PARAMETER_LIST_FOR_INNER_FUNC','Number of formal input parameters for the real handler must be larger of number of items in the subservice names array by at least one');
-    }
-    function invoker () {
-      var args = Array.prototype.slice.call(arguments),
-        multis = resolvemaps.call(this,symbolicmultis),
-        defer;
-      if (args.length < outerparamcount) {
-        if (args.length < outerparamcount-1) {
-          console.error(args, 'are too short, should be', outerparamcount-1, 'at least');
-          throw new lib.Error('NUMBER_OF_INPUT_PARAMS_TOO_LOW');
-        }
-        defer = q.defer();
-        args.push(defer);
-      }
-      if (args.length > outerparamcount) {
-        console.error(args, 'are too long, should be', outerparamcount, 'at most');
-        throw new lib.Error('NUMBER_OF_INPUT_PARAMS_TOO_HIGH');
-      }
-      new InvokerWaiter(this, multis, args, func);
-      return args[args.length-1].promise;
-    }
-    return superinvoker(invoker);
-  };
-
-  return dependentMethod;
-}
-
-module.exports = createDependentMethod;
-
-},{}],140:[function(require,module,exports){
-(function (process){(function (){
-function createRegistryBase(execlib){
-  'use strict';
-  var lib = execlib.lib,
-    q = lib.q,
-    qlib = lib.qlib,
-    myrequire = require('./myrequirecreator')(execlib);
-  function RegistryBase(){
-    lib.DIContainer.call(this);
-  }
-  lib.inherit(RegistryBase,lib.DIContainer);
-  RegistryBase.prototype.register = function (modulename, mod) {
-    if (typeof mod !== 'undefined') {
-      if (this.get(modulename)) {
-        console.error(process.pid, 'duplicate register for', modulename);
-        return q.reject(new lib.Error('DUPLICATE_MODULE_REGISTER_ATTEMPT', 'Duplicate register for '+modulename+' is not allowed'));
-      }
-      lib.DIContainer.prototype.register.call(this, modulename, mod);
-      return mod;
-    }
-    if (!this.busy(modulename)) {
-      this.waitFor(modulename);
-      return this.finalizeRegister(modulename);
-    }
-    return this.waitFor(modulename);
-  };
-  RegistryBase.prototype.finalizeRegister = function (modulename) {
-    var d, ret;
-    try {
-      return q(this.register(modulename, myrequire(modulename)(execlib)));
-    }
-    catch(e){
-      if(execlib.execSuite.installFromError){
-        d = q.defer();
-        ret = d.promise;
-        execlib.execSuite.installFromError(this.registerAfterInstall.bind(this,modulename,d),e);
-        return ret;
-      }else{
-        console.log(e.stack);
-        console.log(e);
-        return q.reject(e);
-      }
-    }
-  };
-  RegistryBase.prototype.registerAfterInstall = function (modulename, defer, should) {
-    var e, frres;
-    if (!should) {
-      e = new lib.Error('MODULE_INSTALLATION_FAILED',modulename);
-      e.modulename = modulename;
-      if (defer) {
-        defer.reject(e);
-      }
-      this.fail(e);
-      return;
-    }
-    frres = this.finalizeRegister(modulename);
-    if (defer) {
-      qlib.promise2defer(frres, defer);
-    }
-  };
-  RegistryBase.prototype.spawn = function (modulename, prophash) {
-    var d = q.defer();
-    this.register(modulename).done(
-      function(ctor){
-        d.resolve(new ctor(prophash||{}));
-        d = null;
-        prophash = null;
-      },
-      d.reject.bind(d)
-    );
-    return d.promise;
-  };
-  RegistryBase.prototype.onInstallFromError = function (modulename,defer,error,ok) {
-    if(ok){
-      qlib.promise2defer(this.register(modulename), defer);
-    }else{
-      defer.reject(error);
-    }
-  };
-  return RegistryBase;
-}
-
-module.exports = createRegistryBase;
-
-
-}).call(this)}).call(this,require('_process'))
-},{"./myrequirecreator":141,"_process":332}],141:[function(require,module,exports){
-/*
- * This module overcomes the NodeJS's bug with require
- * The bug is:
- * 1. require a module that doesn't exist
- * 2. require fails
- * 3. obtain a module that didn't exist
- * 4. require will fail if "main" of the obtained module's package.json is not "index.js"
- */
-var Path = require('path'),
-  fs = require('fs');
-function createMyRequire (execlib) {
-  'use strict';
-
-  function mytryer (name, result, path) {
-    var pj;
-    if (result) {
-      return result;
-    }
-    try {
-      pj = JSON.parse(fs.readFileSync(Path.join(path, name, 'package.json')));
-      if (pj && pj.main) {
-        return require(Path.join(path, name, pj.main));
-      }
-      return result;
-    } catch (e) {
-      return result;
-    }
-  }
-  function myrequire (name) {
-    var ret ;
-    try {
-      return require(name);
-    } catch (e) {
-      ret = require.resolve.paths(name).reduce(mytryer.bind(null, name), null);
-      if (ret !== null) {
-        return ret;
-      }
-      throw e;
-    }
-  }
-
-  return myrequire;
-}
-module.exports = createMyRequire;
-
-},{"fs":238,"path":324}],142:[function(require,module,exports){
-function createServicePackSuite(execlib,clientFactory){
-  'use strict';
-  var servicePackSuite = {
-    NotAllexModuleError: require('./notallexmoduleerrorcreator')(execlib),
-    UserSpawner: require('./userspawnercreator')(execlib,clientFactory)
-  };
-  require('./registrycreator')(execlib,servicePackSuite);
-}
-
-module.exports = createServicePackSuite;
-
-},{"./notallexmoduleerrorcreator":144,"./registrycreator":145,"./userspawnercreator":146}],143:[function(require,module,exports){
-(function (process){(function (){
-function createModuleRegistry(execlib,servicePackSuite){
-  'use strict';
-  var lib = execlib.lib,
-    q = lib.q,
-    execSuite = execlib.execSuite,
-    RegistryBase = execSuite.RegistryBase,
-    NotAllexModuleError = servicePackSuite.NotAllexModuleError;
-
-  function isAServicePackSide (side) {
-    if (!lib.isFunction(side)) {
-      return (side && lib.isFunction(side.cb) && lib.isArray(side.dependencies));
-    }
-    return true;
-  }
-  function isAServicePack(servicepack) {
-    if (!servicepack) {
-      return false;
-    }
-    return isAServicePackSide(servicepack.serverside) && isAServicePackSide(servicepack.clientside);
-  }
-
-  function ModuleRegistry(){
-    RegistryBase.call(this);
-    this.onSuperSink = new lib.HookCollection();
-  }
-  lib.inherit(ModuleRegistry,RegistryBase);
-  ModuleRegistry.prototype.destroy = function(){
-    if(!this.onSuperSink){
-      return;
-    }
-    this.onSuperSink.destruct();
-    this.onSuperSink = null;
-    RegistryBase.prototype.destroy.call(this);
-  };
-  ModuleRegistry.prototype.processNewServicePack = function (modulename, servicepack) {
-    if (!isAServicePack(servicepack)) {
-      console.trace();
-      console.log('what is', servicepack, '?');
-      throw new NotAllexModuleError(modulename);
-    }
-  };
-  ModuleRegistry.prototype.weWillSeeAboutThis = function (modulename, servicepack) {
-    var Service = servicepack.Service,
-      SinkMap = servicepack.SinkMap,
-      browserifymode = 'undefined' !== typeof window,
-      ServiceSink;
-
-    if (!SinkMap) {
-      if (!(servicepack instanceof lib.Fifo)) {
-        console.trace();
-        console.log('what is', servicepack, '?');
-        throw new NotAllexModuleError(modulename);
-      }
-      return;
-    }
-    if('function' !== typeof Service && !browserifymode){
-      throw new NotAllexModuleError(modulename);
-    }
-    SinkMap.traverse(function(sinkctor,role){
-      sinkctor.prototype.role = role;
-      sinkctor.prototype.modulename = modulename;
-    });
-    if(!browserifymode){
-      //provide the neccessary bridge between ServiceSink for the 'service' role
-      //and the Service's userFactory
-      ServiceSink = SinkMap.get('service');
-      if(ServiceSink){
-        ServiceSink.prototype.findUserCtor = function(role){
-          return Service.prototype.userFactory.get(role);
-        };
-      }
-      Service.prototype.modulename = modulename;
-      Service.prototype.userFactory.traverse(function(userctor){
-        userctor.prototype.modulename = modulename;
-      });
-    }else{
-      if (servicepack.Service) {
-        servicepack.Service = null;
-      }
-    }
-    if(lib.isArray(servicepack.Tasks)){
-      servicepack.Tasks.forEach(taskRegistry.registerClass.bind(taskRegistry));
-    }
-  };
-  ModuleRegistry.prototype.add = function(modulename,servicepack){
-    if (!lib.isString(modulename)) {
-      console.trace();
-      console.error(modulename, 'not a string');
-      process.exit(0);
-      return;
-    }
-    try {
-    this.processNewServicePack(modulename, servicepack);
-    return RegistryBase.prototype.add.call(this,modulename,servicepack);
-    } catch (e) {
-      console.error(e.stack);
-      console.error(e);
-    }
-  };
-  ModuleRegistry.prototype.replace = function (modulename, servicepack) {
-    try {
-    this.processNewServicePack(modulename, servicepack);
-    return RegistryBase.prototype.replace.call(this, modulename, servicepack);
-    } catch (e) {
-      console.error(e.stack);
-      console.error(e);
-    }
-  };
-  ModuleRegistry.prototype.resolve = function(servicepackname,role,client,prophash,defer){
-    var sp = this.get(servicepackname);
-    if(!sp || sp instanceof lib.Fifo){
-      if(servicepackname){
-        this.register(servicepackname).done(
-          this.resolve.bind(this, servicepackname, role, client, prophash, defer),
-          defer.reject.bind(defer)
-        );
-        servicepackname = null;
-        role = null;
-        client = null;
-        prophash = null;
-        defer = null;
-        return;
-      }
-    }
-    if (!sp.SinkMap) {
-      console.log('what is sp?', sp);
-      role = null;
-      client = null;
-      prophash = null;
-      defer = null;
-      throw new NotAllexModuleError(servicepackname);
-    }
-    if(role==='superuser'){
-      role='service';
-    }
-    if(!role){
-      defer.reject('No role');
-      servicepackname = null;
-      role = null;
-      client = null;
-      prophash = null;
-      defer = null;
-      return;
-    }
-    var f = sp.SinkMap.get(role);
-    if(!f){
-      console.trace();
-      defer.reject('No factory function for role '+role);
-      servicepackname = null;
-      role = null;
-      client = null;
-      prophash = null;
-      defer = null;
-      return;
-    }
-    //prophash.modulename = servicepackname;
-    defer.resolve(new f(prophash,client));
-    servicepackname = null;
-    role = null;
-    client = null;
-    prophash = null;
-    defer = null;
-  };
-
-  return ModuleRegistry;
-}
-
-module.exports = createModuleRegistry;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],144:[function(require,module,exports){
-function createNotAllexModuleError(execlib){
-  'use strict';
-  var lib = execlib.lib,
-      AllexError = lib.Error;
-  function NotAllexModuleError(modulename){
-    var ret = new AllexError('MODULE_NOT_AN_ALLEX_SERVICE_PACK','Module named '+modulename+' does not export the service and sinkmap functions');
-    ret.modulename = modulename;
-    return ret;
-  }
-  lib.inherit(NotAllexModuleError,AllexError);
-  return NotAllexModuleError;
-}
-
-module.exports = createNotAllexModuleError;
-
-},{}],145:[function(require,module,exports){
-(function (process){(function (){
-var Path = require('path');
-function createServicePackRegistry(execlib,servicePackSuite) {
-  'use strict';
-  var lib = execlib.lib,
-    q = lib.q,
-    UserSpawner = servicePackSuite.UserSpawner,
-    execSuite = execlib.execSuite,
-    ModuleRegistry = require('./moduleregistrycreator')(execlib,servicePackSuite),
-    taskRegistry = execSuite.taskRegistry,
-    NotAllexModuleError = servicePackSuite.NotAllexModuleError;
-
-  if(execSuite.registry){
-    return;
-  }
-
-  function isAServicePackSide (side) {
-    if (!lib.isFunction(side)) {
-      return (side && lib.isArray(side.dependencies));
-    }
-    return true;
-  }
-  function isAServicePack(servicepack, modulename) {
-    if (!servicepack) {
-      return false;
-    }
-    if (isAServicePackSide(servicepack.service) && isAServicePackSide(servicepack.sinkmap)) {
-      if (!servicepack.dirname) {
-        servicepack.dirname = Path.dirname(require.resolve(modulename));
-      }
-      return true;
-    }
-    return false;
-  }
-
-  function ServicePackRegistry () {
-    this.moduleRegistry = new execSuite.RegistryBase();
-    this.superSinks = new lib.Map();
-    this.clientSides = new lib.DIContainer();
-    this.serverSides = new lib.DIContainer();
-    this.onSuperSink = new lib.HookCollection();
-  }
-  ServicePackRegistry.prototype.destroy = function () {
-    if(!this.onSuperSink){
-      return;
-    }
-    this.onSuperSink.destroy();
-    if (this.serverSides) {
-      this.serverSides.destroy();
-    }
-    this.serverSides = null;
-    if (this.clientSides) {
-      this.clientSides.destroy();
-    }
-    this.clientSides = null;
-    this.onSuperSink = null;
-    if (this.superSinks) {
-      lib.containerDestroyAll(this.superSinks);
-      this.superSinks.destroy();
-    }
-    this.superSinks = null;
-  };
-  ServicePackRegistry.prototype.spawn = function(prophash,connectstring,credentials,session){
-    var us = new UserSpawner(this,prophash,connectstring,credentials,session);
-    return us.defer.promise;
-  };
-  ServicePackRegistry.prototype.maybeDoTasks = function (modulename, servicepack) {
-    if (!servicepack.tasks) {
-      return q(true);
-    }
-    if (!taskRegistry.moduleDone(modulename)) {
-      return this.doDaSide('tasks', servicepack).then(
-        this.onTasksDone.bind(this, modulename)
-      );
-    }
-    return q(taskRegistry.modulesDone.waitFor(modulename));
-  };
-  ServicePackRegistry.prototype.getClientSide = function (modulename) {
-    return this.clientSides.get(modulename);
-  };
-  ServicePackRegistry.prototype.registerClientSide = function (modulename, mod) {
-    var m;
-    if (mod) {
-      return this.clientSides.register(modulename, mod);
-    }
-    m = this.clientSides.get(modulename);
-    if (m) {
-      return q(m);
-    } else {
-      if ('undefined' !== typeof window) {
-        console.error(modulename, 'is not registered');
-      }
-    }
-    return this.moduleRegistry.register(modulename).then(
-      this.onRegisterForClientSide.bind(this, modulename)
-    );
-  };
-  ServicePackRegistry.prototype.onRegisterForClientSide = function (modulename, servicepack) {
-    var cs = this.getClientSide(modulename);
-    if (!cs) {
-      if (!isAServicePack(servicepack, modulename)) {
-        throw NotAllexModuleError(modulename);
-      }
-      return this.maybeDoTasks(modulename, servicepack).then(
-        this.onTasksForClientSide.bind(this, modulename, servicepack)
-      );
-    }
-    return q(cs);
-  };
-  ServicePackRegistry.prototype.onTasksForClientSide = function (modulename, servicepack) {
-    if (!this.clientSides.busy(modulename)) {
-      this.clientSides.waitFor(modulename);
-      return this.doDaSide('client', servicepack).then(
-        this.onClientSideDone.bind(this, modulename)
-      );
-    }
-    return this.clientSides.waitFor(modulename);
-  };
-  ServicePackRegistry.prototype.onClientSideDone = function (modulename, sinkmap) {
-    if (this.getClientSide(modulename)) {
-      return;
-    }
-    sinkmap.traverse(function(sinkctor,role){
-      sinkctor.prototype.role = role;
-      sinkctor.prototype.modulename = modulename;
-    });
-    this.clientSides.register(modulename, sinkmap);
-    modulename = null;
-    return q(sinkmap);
-  };
-  ServicePackRegistry.prototype.onTasksDone = function (modulename, tasks) {
-    taskRegistry.register(modulename, tasks);
-  };
-  ServicePackRegistry.prototype.registerServerSide = function (modulename) {
-    return this.moduleRegistry.register(modulename).then(
-      this.onRegisterForServerSide.bind(this, modulename)
-    );
-  };
-  ServicePackRegistry.prototype.onRegisterForServerSide = function (modulename, servicepack) {
-    var ss = this.serverSides.get(modulename);
-    if (!ss) {
-      if (!isAServicePack(servicepack, modulename)) {
-        throw NotAllexModuleError(modulename);
-      }
-      return this.maybeDoTasks(modulename, servicepack).then(
-        this.onTasksForServerSide.bind(this, modulename, servicepack)
-      );
-    }
-    return q(ss);
-  };
-  ServicePackRegistry.prototype.onTasksForServerSide = function (modulename, servicepack) {
-    if (!this.serverSides.busy(modulename)) {
-      this.serverSides.waitFor(modulename);
-      return this.doDaSide('server', servicepack).then(
-        this.onServerSideDone.bind(this, modulename)
-      );
-    }
-    return this.serverSides.waitFor(modulename);
-  };
-  ServicePackRegistry.prototype.onServerSideDone = function (modulename, service) {
-    var _ce = console.error.bind(console), _pe = process.exit.bind(process);
-    service.prototype.modulename = modulename;
-    service.prototype.userFactory.traverse(function(userctor){
-      if (!userctor.inherit) {
-        _ce('no inherit', modulename, userctor.prototype.role);
-        _pe(0);
-      }
-      userctor.prototype.modulename = modulename;
-    });
-    _pe = null;
-    _ce = null;
-    this.serverSides.register(modulename, service);
-    modulename = null;
-    return q(service);
-  };
-  ServicePackRegistry.prototype.add = function(modulename,servicepack){
-    return this.moduleRegistry.register(modulename, servicepack);
-  };
-  ServicePackRegistry.prototype.getServerSide = function(modulename) {
-    return this.serverSides.get(modulename);
-  };
-  ServicePackRegistry.prototype.getModule = function (modulename) {
-    return this.moduleRegistry.get(modulename);
-  };
-  function onLoadDependencies (cb, defer) {
-    var args = Array.prototype.slice.call(arguments, 2);
-    args.unshift(execlib);
-    if (lib.isString(cb)) {
-      try {
-        cb = require(cb);
-      } catch(e) {
-        console.error('Error in', cb);
-        console.error(e);
-        defer.reject(e);
-        cb = null;
-        defer = null;
-        return;
-      }
-    }
-    var ret = cb.apply(null, args);
-    cb = null;
-    defer.resolve(ret);
-    defer = null;
-  }
-  ServicePackRegistry.prototype.doDaSide = function (sidename, servicepack) {
-    var side, sidemodulename, d, cb;
-    switch(sidename) {
-      case 'server':
-        side = servicepack.service;
-        sidemodulename = 'servicecreator';
-        break;
-      case 'client':
-        side = servicepack.sinkmap;
-        sidemodulename = 'sinkmapcreator';
-        break;
-      case 'tasks':
-        side = servicepack.tasks;
-        sidemodulename = 'taskcreator';
-        break;
-    }
-    if (!side) {
-      throw new lib.JSONizingError('NO_SERVICEPACK_SIDE', servicepack, 'Missing '+sidename+':');
-    }
-    if (lib.isFunction(side)) {
-      return q(side(execlib));
-    }
-    cb = side.cb;
-    if (!cb) {
-      cb = Path.join(servicepack.dirname, sidemodulename);
-    }
-    d = q.defer();
-    execlib.loadDependencies(sidename, side.dependencies, onLoadDependencies.bind(null, cb, d));
-    return d.promise;
-  };
-  ServicePackRegistry.prototype.resolve = function(servicepackname,role,client,prophash,defer){
-    this.registerClientSide(servicepackname).then(
-      this.onClientSideForResolve.bind(this, role, client, prophash, defer),
-      defer.reject.bind(defer)
-    );
-  };
-  ServicePackRegistry.prototype.onClientSideForResolve = function (role, client, prophash, defer, sinkmap) {
-    var f;
-    if(role==='superuser'){
-      role='service';
-    }
-    if(!role){
-      defer.reject('No role');
-      role = null;
-      client = null;
-      prophash = null;
-      defer = null;
-      return;
-    }
-    f = sinkmap.get(role);
-    if(!f){
-      console.trace();
-      defer.reject('No factory function for role '+role);
-      role = null;
-      client = null;
-      prophash = null;
-      defer = null;
-      return;
-    }
-    //prophash.modulename = servicepackname;
-    defer.resolve(new f(prophash,client));
-    role = null;
-    client = null;
-    prophash = null;
-    defer = null;
-  };
-  function SuperSinkSlot(registry,supersinkitem){
-    this.registry = registry;
-    this.name = supersinkitem.content.name;
-  }
-  SuperSinkSlot.prototype.destroy = function(){
-    console.log('removing',this.name);
-    this.registry.onSuperSink.fire(this.name,null);
-    this.registry.superSinks.remove(this.name);
-    this.name = null;
-    this.registry = null;
-  };
-  ServicePackRegistry.prototype.registerSuperSink = function(serviceinstancename,supersink){
-    console.log(process.pid+'','registering supersink',serviceinstancename,'('+supersink.modulename+':'+supersink.role+')');
-    supersink.extendTo(new SuperSinkSlot(this,this.superSinks.add(serviceinstancename,supersink)));
-    this.onSuperSink.fire(serviceinstancename,supersink);
-  };
-  ServicePackRegistry.prototype.getSuperSink = function(supersinkname){
-    return this.superSinks.get(supersinkname);
-  };
-
-  execSuite.registry = new ServicePackRegistry;
-}
-
-module.exports = createServicePackRegistry;
-
-}).call(this)}).call(this,require('_process'))
-},{"./moduleregistrycreator":143,"_process":332,"path":324}],146:[function(require,module,exports){
-(function (process){(function (){
-function createUserSpawner(execlib,clientFactory){
-  'use strict';
-  var lib = execlib.lib,
-      q = lib.q;
-  function UserSpawner(factory,prophash,connectstring,credentials,session){
-    this.defer = q.defer();
-    this.factory = factory;
-    this.prophash = prophash;
-    this.authListener = null;
-    this.destroyedListener = null;
-    if(connectstring){
-      var c;
-      try{
-        c = clientFactory(connectstring,credentials,session);
-      }
-      catch(e){
-        console.error(e.stack);
-        console.error(e);
-        this.onAuthenticated(e,null,null);
-        return;
-      }
-      if(c){
-        this.authListener = c.authenticated.attach(this.onAuthenticated.bind(this));
-        this.destroyedListener = c.destroyed.attach(this.onClientDestroyed.bind(this));
-      }else{
-        this.onClientDestroyed(new lib.UnconnectableError(connectstring),null,null);
-      }
-    }else{
-      this.onClientDestroyed(new lib.UnconnectableError(connectstring),null,null);
-    }
-  }
-  UserSpawner.prototype.destroy = function(){
-    if(this.destroyedListener){
-      this.destroyedListener.destroy();
-    }
-    this.destroyedListener = null;
-    if(this.authListener){
-      this.authListener.destroy();
-    }
-    this.authListener = null;
-    this.prophash = null;
-    this.factory = null;
-    this.defer = null;
-  };
-  UserSpawner.prototype.onAuthenticated = function(client,servicepackname,role){
-    if(!this.defer){
-      return;
-    }
-    if (!servicepackname) {
-      console.trace();
-      if (process && lib.isFunction(process.exit)) {
-        process.exit(0);
-      }
-      return;
-    }
-    this.factory.resolve(servicepackname,role,client,this.prophash,this.defer);
-    lib.runNext(this.destroy.bind(this));
-  };
-  UserSpawner.prototype.onClientDestroyed = function(exception){
-    if(!this.factory){//dead since onAuthenticated
-      return;
-    }
-    if(exception){
-      this.defer.reject(exception);
-    }
-    lib.runNext(this.destroy.bind(this));
-  };
-  return UserSpawner;
-}
-
-module.exports = createUserSpawner;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],147:[function(require,module,exports){
-function createADS(lib,StreamDecoder
-/*all ctors after this are for the helper function(s) listenToScalar(s),listenToCollection(s)*/
-  ,StreamSource,StreamPathListener,StreamCollectionListener,StreamScalarListener){
-  'use strict';
-  function ADS(listenerpack){
-    StreamDecoder.call(this);
-    this.ctx = listenerpack.ctx || this;
-    if(listenerpack.activator){
-      this.a = listenerpack.activator;
-    }
-    if(listenerpack.setter){
-      this.s = listenerpack.setter;
-    }
-    if(listenerpack.deactivator){
-      this.d = listenerpack.deactivator;
-    }
-    if(listenerpack.rawsetter){
-      this.r = listenerpack.rawsetter;
-    }
-  }
-  lib.inherit(ADS,StreamDecoder);
-  ADS.prototype.destroy = function(){
-    if(this.a){
-      this.a = null;
-    }
-    if(this.s){
-      this.s = null;
-    }
-    if(this.r){
-      this.r = null;
-    }
-    if(this.d){
-      this.d = null;
-    }
-  };
-  ADS.prototype.onStreamCollectionCreated = function(path){
-    if(this.a){
-      this.a.call(this.ctx,path);
-    }
-  };
-  ADS.prototype.onStreamScalarCreated = function(path,value){
-    if(this.a){
-      this.a.call(this.ctx,path);
-    }
-    if(this.s){
-      this.s.call(this.ctx,path,value,void 0);
-    }
-    if(this.r){
-      this.r.call(this.ctx,value,void 0);
-    }
-  };
-  ADS.prototype.onStreamScalarUpdated = function(path,value,oldvalue){
-    if(this.s){
-      this.s.call(this.ctx,path,value,oldvalue);
-    }
-    if(this.r){
-      this.r.call(this.ctx,value,oldvalue);
-    }
-  };
-  ADS.prototype.onStreamCollectionRemoved = function(path){
-    if(this.d){
-      this.d.call(this.ctx,path);
-    }
-  };
-  ADS.prototype.onStreamScalarRemoved = function(path,lastvalue){
-    if(this.s){
-      this.s.call(this.ctx,path,void 0,lastvalue);
-    }
-    if(this.r){
-      this.r.call(this.ctx,void 0,lastvalue);
-    }
-    if(this.d){
-      this.d.call(this.ctx,path);
-    }
-  };
-  function compose(listenerctor,path,listenerpack){
-    var l = new listenerctor(path,true);
-    if(!listenerpack.ctx){
-      listenerpack.ctx = l;
-    }
-    return StreamSource.chain([
-      l,
-      new ADS(listenerpack)
-    ]);
-  }
-  ADS.listenToScalar = function(path,listenerpack){
-    return compose(StreamScalarListener,path,listenerpack);
-  };
-  ADS.listenToCollection = function(path,listenerpack){
-    return compose(StreamCollectionListener,path,listenerpack);
-  };
-  return ADS;
-}
-
-module.exports = createADS;
-
-},{}],148:[function(require,module,exports){
-function createStateCoder(lib){
-  'use strict';
-  function StateCoder(){
-  }
-  StateCoder.prototype.destroy = lib.dummyFunc;
-  StateCoder.prototype.newCollection = function(path){
-    return {
-      p:path.slice(),
-      o:'c'
-    };
-  };
-  StateCoder.prototype.newScalar = function(path,value){
-    return {
-      p:path.slice(),
-      o:'s',
-      d:value
-    };
-  };
-  StateCoder.prototype.updateScalar = function(path,value,oldvalue){
-    return {
-      p: path.slice(),
-      o:'u',
-      d:[value,oldvalue]
-    };
-  };
-  StateCoder.prototype.removeCollection = function(path){
-    return {
-      p: path.slice(),
-      o:'cr'
-    };
-  };
-  StateCoder.prototype.removeScalar = function(path,lastvalue){
-    return {
-      p: path.slice(),
-      o:'sr',
-      d:lastvalue
-    };
-  };
-  return StateCoder;
-}
-
-module.exports = createStateCoder;
-
-},{}],149:[function(require,module,exports){
-function createCollection(lib,StreamBuffer){
-  'use strict';
-  function Collection(){
-    StreamBuffer.call(this);
-  }
-  lib.inherit(Collection,StreamBuffer);
-  Collection.prototype.createContainer = function(){
-    return new lib.ListenableMap();
-  };
-  Collection.prototype.nodeCtor = function(){
-    return Collection;
-  };
-  return Collection;
-}
-
-module.exports = createCollection;
-
-},{}],150:[function(require,module,exports){
-function createCollectionListener(lib,StreamPathListener){
-  'use strict';
-  function CollectionListener(pathmask, destroysinktoo){
-    StreamPathListener.call(this, pathmask, destroysinktoo);
-  }
-  lib.inherit(CollectionListener,StreamPathListener);
-  CollectionListener.prototype.onItem = function(item){
-    console.trace();
-    var o = item.o;
-    if(o[0] === 'c'){
-      this.handleStreamItem(item);
-    }
-  };
-  return CollectionListener;
-}
-
-module.exports = createCollectionListener;
-
-},{}],151:[function(require,module,exports){
-function createStateLib (lib) {
-  'use strict';
-
-  var streamlib = require('allex_streamclientcorelib')(lib),
-      StateCoder = require('./codercreator')(lib),
-      StateSource = streamlib.streamSourceCreator(StateCoder),
-      State2Array = require('./stream2arraysinkcreator')(lib,streamlib.StreamSink),
-      State2Defer = require('./stream2defersinkcreator')(lib,streamlib.StreamSink),
-      StateDecoder = require('./streamdecodercreator')(lib,streamlib.StreamSink),
-      State2Map = require('./stream2mapsinkcreator')(lib,StateDecoder),
-      StatePathModifier = require('./streampathmodifiercreator')(lib,StateSource),
-      StatePathListener = require('./streampathlistenercreator')(lib,StateSource,State2Map),
-      StateCollectionListener = require('./collectionlistenercreator')(lib,StatePathListener),
-      StateScalarListener = require('./scalarlistenercreator')(lib,StatePathListener),
-      StateSubServiceExtractor = require('./subserviceextractorcreator')(lib,StateSource),
-      ADS = require('./adscreator')(lib,StateDecoder,StateSource,StatePathListener,StateCollectionListener,StateScalarListener),
-      StateBuffer = require('./streambuffercreator')(lib,StateSource,StateDecoder,streamlib.StreamDistributor,StateCoder),
-      Collection = require('./collectioncreator')(lib,StateBuffer),
-      LimitedCollection = require('./limitedcollectioncreator')(lib,Collection);
-
-  return {
-    StateCoder: StateCoder,
-    StateSource: StateSource,
-    State2Array: State2Array,
-    State2Defer: State2Defer,
-    StateDecoder: StateDecoder,
-    State2Map: State2Map,
-    StatePathModifier: StatePathModifier,
-    StatePathListener: StatePathListener,
-    StateCollectionListener: StateCollectionListener,
-    StateScalarListener: StateScalarListener,
-    StateSubServiceExtractor: StateSubServiceExtractor,
-    ADS: ADS,
-    Collection: Collection,
-    LimitedCollection: LimitedCollection
-  };
-}
-
-module.exports = createStateLib;
-
-},{"./adscreator":147,"./codercreator":148,"./collectioncreator":149,"./collectionlistenercreator":150,"./limitedcollectioncreator":152,"./scalarlistenercreator":153,"./stream2arraysinkcreator":154,"./stream2defersinkcreator":155,"./stream2mapsinkcreator":156,"./streambuffercreator":157,"./streamdecodercreator":158,"./streampathlistenercreator":159,"./streampathmodifiercreator":160,"./subserviceextractorcreator":161,"allex_streamclientcorelib":164}],152:[function(require,module,exports){
-function createLimitedLiveData(lib,Collection){
-  'use strict';
-  function LimitedCollection(limit){
-    Collection.call(this);
-    this.limit = limit;
-  }
-  lib.inherit(LimitedCollection,Collection);
-  LimitedCollection.prototype.set = function(){
-    if(this.data.count>=this.limit){
-      return;
-    }
-    return Collection.prototype.set.apply(this,arguments);
-  };
-  return LimitedCollection;
-}
-
-module.exports = createLimitedLiveData;
-
-},{}],153:[function(require,module,exports){
-function createScalarListener(lib,StreamPathListener){
-  'use strict';
-  function ScalarListener(pathmask, destroysinktoo){
-    StreamPathListener.call(this, pathmask, destroysinktoo);
-  }
-  lib.inherit(ScalarListener,StreamPathListener);
-  ScalarListener.prototype.onItem = function(item){
-    var o = item.o;
-    if(o[0]!=='c'){
-      this.handleStreamItem(item);
-    }
-  };
-  return ScalarListener;
-}
-
-module.exports = createScalarListener;
-
-},{}],154:[function(require,module,exports){
-function createStream2Array(lib,StreamSink){
-  'use strict';
-  function Stream2Array(arry){
-    lib.Destroyable.call(this);
-    this.arry = arry || [];
-  }
-  lib.inherit(Stream2Array,lib.Destroyable);
-  Stream2Array.prototype.__cleanUp = function(){
-    this.arry = null;
-    lib.Destroyable.prototype.__cleanUp.call(this);
-  };
-  Stream2Array.prototype.onStream = function(item){
-    this.arry.push(item);
-  };
-  return Stream2Array;
-}
-
-module.exports = createStream2Array;
-
-},{}],155:[function(require,module,exports){
-function createStream2Defer(lib,StreamSink){
-  'use strict';
-  function Stream2Defer(defer){
-    lib.Destroyable.call(this);
-    this.defer = defer;
-  }
-  lib.inherit(Stream2Defer,lib.Destroyable);
-  Stream2Defer.prototype.__cleanUp = function(){
-    this.defer.resolve('end');
-    this.defer = null;
-    lib.Destroyable.prototype.__cleanUp.call(this);
-  };
-  Stream2Defer.prototype.onStream = function(item){
-    this.defer.notify(item);
-  };
-  return Stream2Defer;
-}
-
-module.exports = createStream2Defer;
-
-
-},{}],156:[function(require,module,exports){
-function createStream2Map(lib,StreamDecoder){
-  'use strict';
-
-  function isAddable (thingy) {
-    return thingy && (lib.isFunction(thingy.add) || lib.isFunction(thingy.set));
-  }
-
-  function addTo (addable, key, value) {
-    if (lib.isFunction(addable.add)) {
-      return addable.add(key, value);
-    }
-    if (lib.isFunction(addable.set)) {
-      return addable.set(key, value);
-    }
-    throw new lib.Error('NOT_ADDABLE', 'Cannot add');
-  }
-
-  function replaceOn (replaceable, key, value) {
-    if (lib.isFunction(replaceable.replace)) {
-      return replaceable.replace(key, value);
-    }
-    if (lib.isFunction(replaceable.set)) {
-      replaceable.set(key, null);
-      return replaceable.set(key, value);
-    }
-  }
-
-  function Stream2Map(map){
-    StreamDecoder.call(this);
-    this.mymap = null;
-    this.map = null;
-    if (map) {
-      this.map = map;
-      this.mymap = false;
-    } else {
-      this.map = new lib.Map();
-      this.map.purge();
-      this.mymap = true;
-    }
-  }
-  lib.inherit(Stream2Map,StreamDecoder);
-  Stream2Map.prototype.destroy = function(){
-    if (this.mymap) {
-      this.map.destroy();
-    }
-    this.map = null;
-    this.mymap = null;
-  };
-  function pathTraverser(finalizer,mapobj,item,itemindex,path){
-    if(!isAddable(mapobj.map)) {
-      throw lib.Error("map not a map at itemindex "+itemindex);
-    }
-    if(itemindex<path.length-1){
-      var c = mapobj.map.get(item);
-      if(!c){
-        c = new lib.Map();
-        addTo(mapobj.map, item, c);
-        //mapobj.map.add(item,c);
-      }
-      mapobj.map = c;
-    }else{
-      finalizer(mapobj,item);
-    }
-  }
-  function collectionCreator(mapobj,item){
-    addTo(mapobj.map, item, new lib.Map());
-    //mapobj.map.add(item,new lib.Map());
-  }
-  function scalarCreator(mapobj,item){
-    addTo(mapobj.map, item, mapobj.value);
-    //mapobj.map.add(item,mapobj.value);
-  }
-  function scalarUpdater(mapobj,item){
-    replaceOn(mapobj.map, item, mapobj.value);
-    //mapobj.map.replace(item,mapobj.value);
-  }
-  function elementDeleter(mapobj,item){
-    mapobj.map.remove(item);
-  };
-  Stream2Map.prototype.onStreamCollectionCreated = function(path){
-    path.forEach(pathTraverser.bind(null,collectionCreator,{map:this.map}));
-  };
-  Stream2Map.prototype.onStreamScalarCreated = function(path,value){
-    path.forEach(pathTraverser.bind(null,scalarCreator,{map:this.map,value:value}));
-  };
-  Stream2Map.prototype.onStreamScalarUpdated = function(path,value,oldvalue){
-    path.forEach(pathTraverser.bind(null,scalarUpdater,{map:this.map,value:value}));
-  };
-  Stream2Map.prototype.onStreamCollectionRemoved = function(path){
-    path.forEach(pathTraverser.bind(null,elementDeleter,{map:this.map}));
-  };
-  Stream2Map.prototype.onStreamScalarRemoved = function(path,lastvalue){
-    path.forEach(pathTraverser.bind(null,elementDeleter,{map:this.map}));
-  };
-  return Stream2Map;
-}
-
-module.exports = createStream2Map;
-
-},{}],157:[function(require,module,exports){
-function createStreamBufferCtor(lib,StreamSource,StreamDecoder,StreamDistributor,StreamCoder){
-  'use strict';
-  function StateStreamPathMismatchError(path,itemindex){
-    var ret = new lib.Error('STATE_STREAM_PATH_MISMATCH','Path item '+path[itemindex]+' does not point to a State SubCollection');
-    ret.path = path.slice();
-    ret.itemindex = itemindex;
-    return ret;
-  }
-  lib.inherit(StateStreamPathMismatchError,lib.Error);
-
-  function StreamBuffer(){
-    StreamSource.call(this); //do not destroy sink - that is the StreamDistributor - by default
-    StreamDecoder.call(this);
-    this.stream = new StreamDistributor();
-    this.data = this.createContainer();
-    StreamSource.prototype.setSink.call(this,this.stream);
-  }
-  lib.inherit(StreamBuffer,StreamSource);
-  StreamBuffer.prototype.destroy = function(){
-    //TODO: notify destruction of all
-    this.data.destroy();
-    this.data = null;
-    this.stream.destroy();
-    this.stream = null;
-    StreamDecoder.prototype.destroy.call(this);
-    StreamSource.prototype.destroy.call(this);
-  };
-  StreamBuffer.prototype.createContainer = function(){
-    throw "StreamBuffer has no generic Container creator";
-  };
-  StreamBuffer.prototype.nodeCtor = function(){
-    throw "StreamBuffer has no generic NodeCtor";
-  };
-  StreamBuffer.prototype.onStream = StreamDecoder.prototype.onStream;
-  StreamBuffer.prototype.onStreamCollectionCreated = function(path){
-    this.set(path,new (this.nodeCtor()));
-  };
-  StreamBuffer.prototype.onStreamScalarCreated = function(path,value){
-    this.set(path,value);
-  };
-  StreamBuffer.prototype.onStreamScalarUpdated = function(path,value,oldvalue){
-    this.set(path,value);
-  };
-  StreamBuffer.prototype.onStreamCollectionRemoved = function(path){
-    this.remove(path);
-  };
-  StreamBuffer.prototype.onStreamScalarRemoved = function(path,lastvalue){
-    this.remove(path);
-  };
-  StreamBuffer.prototype.setSink = function(handler){
-    this.dump(handler);
-    return this.stream.attach(handler);
-  };
-  StreamBuffer.prototype.upsert = function(name,val,namearray,target){
-    if (!this.data) {
-      return;
-    }
-    var ditem = this.data.find({name:name}), ret;
-    if(ditem){
-      //update
-      //console.log('updating', name, ':', ret, 'with', val);
-      ret = ditem.content.content;
-      if(ret!==val){
-        ditem.content.content = val;
-        if (this.data.changed) {
-          this.data.changed.fire(name, val);
-        }
-        return target.updateScalar.bind(target,namearray,val,ret);
-      }
-    }else{
-      //insert
-      //console.log('inserting', val, 'at', name);
-      this.data.add(name,val);
-      return val instanceof this.nodeCtor() ? target.newCollection.bind(target,namearray) : target.newScalar.bind(target,namearray,val);
-    }
-    return lib.dummyFunc;
-  };
-  StreamBuffer.prototype.createIfNotExists = function(createobj,name,nameindex,namearry){
-    if(nameindex>=namearry.length-1){
-      createobj.events.push(createobj.target.upsert(name,createobj.val,namearry,this));
-      return;
-    }
-    var target=createobj.target;
-    if(!(target.data && 'function' === typeof target.data.get)){
-      throw new lib.Error(namearry,nameindex);
-    }
-    var item = target.data.get(name), und;
-    if(item===und){
-      if('function' !== typeof target.data.add){
-        throw new lib.Error(namearry,nameindex);
-      }
-      item = new (this.nodeCtor());
-      target.data.add(name,item);
-      createobj.events.push(this.newCollection.bind(this,namearry.slice(0,nameindex+1)));
-    }
-    createobj.target = item;
-  };
-  function _executor(e) {
-    e();
-  }
-  StreamBuffer.prototype.set = function(name,val){ //throws
-    var ton = typeof name, ups;
-    if('string' === ton || name instanceof String){
-      ups = this.upsert(name,val,[name],this);
-      if (ups) {
-        ups();
-      }
-    }else if('object' === ton && name instanceof Array){
-      try{
-      var createobj = {target:this,events:[],val:val};
-      name.forEach(this.createIfNotExists.bind(this,createobj));
-      createobj.events.forEach(_executor);
-      createobj.target = null;
-      createobj.events = null;
-      }
-      catch(er){
-        console.error(er.stack);
-        console.error(er);
-      }
-    }
-    return val;
-  };
-  StreamBuffer.prototype.getInner = function(name,index,collection){
-    if(index===name.length-1){
-      return collection.get(name[index]);
-    }
-    collection = collection.get(name[index]);
-    if(collection){
-      return this.getInner(name,index+1,collection);
-    }
-    return;
-  };
-  StreamBuffer.prototype.get = function(name){
-    if(!this.data){
-      return null;
-    }
-    if(typeof name==='string'){
-      return this.data.get(name);
-    }
-    if(name instanceof Array){
-      return this.getInner(name,0,this);
-    }
-  };
-  StreamBuffer.prototype.reportRemoval = function(name,removeret){
-    if('undefined' !== typeof removeret){
-      if(removeret instanceof (this.nodeCtor())){
-        this.removeCollection(name);
-      }else{
-        this.removeScalar(name,removeret);
-      }
-      //console.log(name,'removed =>',removeret);
-    }
-  };
-  StreamBuffer.prototype.actualRemove = function(name){
-    if (!this.data) {
-      return;
-    }
-    var removeret = this.data.remove(name);
-    this.reportRemoval([name],removeret);
-    return removeret;
-  };
-  StreamBuffer.prototype.remove = function(name,index,collection){
-    if (!this.data) {
-      return;
-    }
-    var ton = typeof name;
-    if('string' === ton || name instanceof String){
-      return this.actualRemove(name);
-    }else{
-      collection = collection||this;
-      //console.log('current collection is',collection,'on',name,index,name[index]);
-      index = index||0;
-      if(index === name.length-1){
-        var ret = collection.actualRemove(name[index]);
-        if(index>0){
-          this.reportRemoval(name,ret);
-        }
-        return ret;
-      }else{
-        var di = collection.data.find({name:name[index]});
-        if(di){
-          return this.remove(name,index+1,di.content.content);
-        }else{
-          return;
-        }
-      }
-    }
-  };
-  function doItem(sc,path,item,itemname){
-    if('object' === typeof item){
-      path.push(itemname);
-      lib.traverse(item,doItem.bind(null,sc,path));
-      path.pop();
-    }else{
-      path.push(itemname);
-      sc.set(path,item);
-      path.pop();
-    }
-  }
-  StreamBuffer.prototype.loadHash = function(hash){
-    lib.traverse(hash,doItem.bind(null,this,[]));
-  };
-  function StreamBufferDumper(coll,sink,start,length){
-    this.sink = sink;
-    if('undefined' !== typeof start && 'undefined' !== typeof length){
-      coll.data.page(this.onItem.bind(this,[]),start,length);
-    }else{
-      coll.data.traverse(this.onItem.bind(this,[]));
-    }
-  }
-  lib.inherit(StreamBufferDumper,StreamCoder);
-  StreamBufferDumper.prototype.destroy = function(){
-    this.sink = null;
-    StreamCoder.prototype.destroy.call(this);
-  };
-  StreamBufferDumper.prototype.newCollection = function(path){
-    this.sink.onStream(StreamCoder.prototype.newCollection.call(this,path));
-  };
-  StreamBufferDumper.prototype.newScalar = function(path,value){
-    this.sink.onStream(StreamCoder.prototype.newScalar.call(this,path,value));
-  };
-  StreamBufferDumper.prototype.onItem = function(path,item,name){
-    if(item && 'function' === typeof item.nodeCtor && item instanceof item.nodeCtor()){
-      path.push(name);
-      this.newCollection(path);
-      item.data.traverse(this.onItem.bind(this,path));
-      path.pop(name);
-    }else{
-      path.push(name);
-      this.newScalar(path,item);
-      path.pop();
-    }
-  };
-  StreamBuffer.prototype.dump = function(func){
-    var d = new StreamBufferDumper(this,func);
-    d.destroy();
-    //return this.data.traverseConditionally(dumper.bind(null,func,path||[]));
-  };
-  StreamBuffer.prototype.digestHash = function(hash){
-    var ss = new StreamSource(),
-      f = StreamSource.chain([ss,this]);
-    ss.doHash(hash);
-    f.destroy();
-    ss.destroy();
-  };
-  return StreamBuffer;
-}
-
-module.exports = createStreamBufferCtor;
-
-},{}],158:[function(require,module,exports){
-(function (process){(function (){
-function createStreamDecoder(lib,StreamSink){
-  'use strict';
-  function StreamDecoder(){
-    StreamSink.call(this);
-  }
-  lib.inherit(StreamDecoder,StreamSink);
-  StreamDecoder.prototype.onStream = function(item){
-    if(item.o==='c'){
-      this.onStreamCollectionCreated(item.p);
-    }else if(item.o==='s'){
-      if (!this.onStreamScalarCreated) {
-        console.trace();
-        console.error('dafuq am I?', this);
-        process.exit(0);
-        return;
-      }
-      this.onStreamScalarCreated(item.p,item.d);
-    }else if(item.o==='u'){
-      this.onStreamScalarUpdated(item.p,item.d[0],item.d[1]);
-    }else if(item.o==='cr'){
-      this.onStreamCollectionRemoved(item.p);
-    }else if(item.o==='sr'){
-      this.onStreamScalarRemoved(item.p,item.d);
-    }
-  };
-  StreamDecoder.prototype.onStreamCollectionCreated = function(path){
-  };
-  StreamDecoder.prototype.onStreamScalarCreated = function(path,value){
-  };
-  StreamDecoder.prototype.onStreamScalarUpdated = function(path,value,oldvalue){
-  };
-  StreamDecoder.prototype.onStreamCollectionRemoved = function(path){
-  };
-  StreamDecoder.prototype.onStreamScalarRemoved = function(path,lastvalue){
-  };
-  return StreamDecoder;
-}
-
-module.exports = createStreamDecoder;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],159:[function(require,module,exports){
-function createStreamPathListener(lib,StreamSource, Stream2Map){
-  'use strict';
-  function StringComparer(str){
-    this.string = str;
-  }
-  StringComparer.prototype.destroy = function(){
-    this.string = null;
-  };
-  StringComparer.prototype.matches = function(string){
-    return this.string === string;
-  };
-  StringComparer.prototype.criterion = function () {
-    return this.string;
-  }
-  function RegExpComparer(regexp){
-    this.regexp = regexp;
-  }
-  RegExpComparer.prototype.matches = function(string){
-    return this.regexp.test(string);
-  }
-  RegExpComparer.prototype.criterion = function () {
-    return this.regexp;
-  };
-  function ArrayComparer(arry){
-    this.array = arry;
-  }
-  ArrayComparer.prototype.destroy = function(){
-    this.array = null;
-  };
-  ArrayComparer.prototype.matches = function(string){
-    return this.array.indexOf(string)>=0;
-  };
-  ArrayComparer.prototype.criterion = function () {
-    return this.array;
-  };
-  function AllPassComparer(){
-  }
-  AllPassComparer.prototype.destroy = lib.dummyFunc;
-  AllPassComparer.prototype.matches = function(){
-    return true;
-  };
-  AllPassComparer.prototype.criterion = function () {
-    return '*';
-  };
-  function createComparer(something){
-    if(lib.isArray(something)){
-      return new ArrayComparer(something);
-    }
-    if(lib.isString(something)){
-      return new StringComparer(something);
-    }
-    if(something instanceof RegExp){
-      return new RegExpComparer(something);
-    }
-    if(something === null){
-      return new AllPassComparer;
-    }
-  }
-  function StreamPathListener(pathmask,destroysinktoo){
-    //console.trace();
-    //console.log('new StreamPathListener', pathmask);
-    StreamSource.call(this,destroysinktoo);
-    this.pathmask = pathmask.map(createComparer);
-    if(!(this.pathmask && lib.isArray(this.pathmask))){
-      throw 'StreamPathListener needs a pathmask in constructor';
-    }
-    this.masklen = this.pathmask.length;
-  };
-  lib.inherit(StreamPathListener,StreamSource);
-  StreamPathListener.prototype.destroy = function(){
-    if(!this.pathmask){
-      return;
-    }
-    lib.arryDestroyAll(this.pathmask);
-    this.masklen = null;
-    this.pathmask = null;
-    StreamSource.prototype.destroy.call(this);
-  };
-  function comparer(path,pathmitem,index,pathm){
-    if(!pathmitem){
-      console.error("What's wrong with",pathm,"?!");
-    }
-    return pathmitem.matches(path[index]);
-  }
-  StreamPathListener.prototype.onStream = function(item){
-    if(!item.p){
-      return;
-    }
-    if(!this.masklen){
-      return;
-    }
-    //console.log(item,'for',this.pathmask,this.masklen);
-    //console.log(item,'for length of pathmask',this.masklen);
-    var path = item.p;
-    if(path.length!==this.masklen){
-      //console.log('nok');
-      return;
-    }
-    if(this.pathmask.every(comparer.bind(null,path))){
-      this.handleStreamItemSuper(item);
-    }else{
-      //console.log(process.pid, 'nok', item.p, 'because', this.pathmask.map(function(item){return item.criterion();}));
-    }
-  };
-  StreamPathListener.prototype.handleStreamItem = StreamPathListener.prototype.onStream;
-  StreamPathListener.prototype.handleStreamItemSuper = function (item) {
-    StreamSource.prototype.handleStreamItem.call(this, item);
-  };
-  return StreamPathListener;
-}
-
-module.exports = createStreamPathListener;
-
-},{}],160:[function(require,module,exports){
-function createStreamPathModifier(lib,StreamSource){
-  'use strict';
-  function StreamPathModifier(modifierfunc,destroysinktoo){
-    StreamSource.call(this,destroysinktoo);
-    this.modifierfunc = modifierfunc;
-  }
-  lib.inherit(StreamPathModifier,StreamSource);
-  StreamPathModifier.prototype.destroy = function(){
-    this.modifierfunc = null;
-    StreamSource.prototype.destroy.call(this);
-  };
-  StreamPathModifier.prototype.onStream = function(item){
-    var originalp = item.p, p = this.modifierfunc(originalp);
-    if(p instanceof Array){
-      item.p = p;
-      this.handleStreamItem(item);
-      item.p = originalp;
-    }
-  };
-  return StreamPathModifier;
-}
-
-module.exports = createStreamPathModifier;
-
-},{}],161:[function(require,module,exports){
-function createSubServiceExtractor(lib,StreamSource){
-  'use strict';
-
-  function SubSinkDestroyedListener(sse, cb, sink, subservicename) {
-    this.name = subservicename;
-    this.sse = sse;
-    this.item = null;
-    this.cb = cb;
-    this.listener = null;
-    if (sse && sse.listeners && sink && sink.destroyed) {
-      this.item = sse.listeners.add(this);
-      this.listener = sink.destroyed.attach(this.destroy.bind(this));
-      this.cb(sink);
-    } else {
-      this.destroy();
-    }
-  }
-  SubSinkDestroyedListener.prototype.destroy = function() {
-    //console.log('SubSinkDestroyedListener',this.name,'firing destroyed');
-    if (!this.listener) {
-      return;
-    }
-    this.listener.destroy();
-    this.listener = null;
-    this.cb();
-    this.cb = null;
-    this.sse.listeners.removeOne(this.item);
-    this.item = null;
-    this.sse = null;
-    this.name = null;
-  };
-
-  function SubServiceExtractor(supersink,initmap,destroysinktoo){
-    StreamSource.call(this,destroysinktoo);
-    this.supersink = supersink;
-    if(!(initmap && initmap.count)){
-      //console.log('SubServiceExtractor will not work without init parameters in initmap');
-    }
-    this.initmap = initmap;
-    this.listeners = new lib.SortedList();
-    supersink.extendTo(this); //fasten the safety belt
-  }
-  lib.inherit(SubServiceExtractor,StreamSource);
-  SubServiceExtractor.prototype.destroy = function(){
-    //I might be called for several times
-    if(!this.initmap){
-      return;
-    }
-    if (this.listeners) {
-      lib.containerDestroyAll(this.listeners);
-      this.listeners.destroy();
-    }
-    this.listeners = null;
-    this.initmap.destroy();
-    this.initmap = null;
-    this.supersink = null;
-    StreamSource.prototype.destroy.call(this);
-  };
-  SubServiceExtractor.prototype.onStream = function(item){
-    var p = item.p,
-      subservicename,
-      initparams;
-    if(p && p.length===1 && p[0].indexOf('have')===0 && item.o==='s' && item.d===true) {
-      subservicename = p[0].substring(4);
-      initparams = this.initmap.get(subservicename);
-      if(initparams){
-        //console.log('SubServiceExtractor trying to subConnect to', subservicename, 'as', initparams);
-        this.supersink.subConnect(subservicename,initparams.identity,initparams.propertyhash).done(
-          this.onSubConnected.bind(this,initparams.cb,subservicename),
-          this.onSubConnectFailed.bind(this,initparams.cb,subservicename)
-        );
-      }
-    }
-    this.handleStreamItem(item);
-  };
-  SubServiceExtractor.prototype.onSubConnected = function(cb,subservicename,sink){
-    //console.log('SubServiceExtractor got',subservicename,'sink');
-    new SubSinkDestroyedListener(this,cb,sink,subservicename);
-  };
-  SubServiceExtractor.prototype.onSubConnectFailed = function(cb,subservicename,reason){
-    //console.error('SubServiceExtractor got',reason,'trying to subConnect to',subservicename);
-    cb(null);
-  };
-  return SubServiceExtractor;
-}
-
-module.exports = createSubServiceExtractor;
-
-},{}],162:[function(require,module,exports){
-function createBlackHole(lib){
-  'use strict';
-  function BlackHole(){
-  }
-  BlackHole.prototype.destroy = lib.dummyFunc;
-  BlackHole.prototype.onStream = lib.dummyFunc;
-  return BlackHole;
-}
-
-module.exports = createBlackHole;
-
-},{}],163:[function(require,module,exports){
-function createStreamDistributor(lib,StreamSink){
-  'use strict';
-  function StreamDistributor(){
-    StreamSink.call(this);
-    this.sinks = new lib.Fifo();
-  }
-  lib.inherit(StreamDistributor,StreamSink);
-  StreamDistributor.prototype.destroy = function(){
-    var sinks = this.sinks;
-    this.sinks = null;
-    if (sinks) {
-      lib.containerDestroyAll(sinks);
-      sinks.destroy();
-    }
-    StreamSink.prototype.destroy.call(this);
-  };
-  StreamDistributor.prototype.attach = function(sink){
-    if(!sink.onStream){
-      throw new lib.Error('NO_ONSTREAM', 'sink needs the onStream method');
-    }
-    if(!sink.destroyed){
-      return;
-    }
-    var ret = this.sinks.push(sink);
-    sink.destroyed.attachForSingleShot(this.onSinkDown.bind(this,ret));
-    return ret;
-  };
-  StreamDistributor.prototype.doTrigger = function(item,sink){
-    if(!sink.destroyed){
-      return;
-    }
-    sink.onStream(item);
-  }
-  StreamDistributor.prototype.onStream = function(item){
-    if (!this.sinks) {
-      return;
-    }
-    this.sinks.traverse(this.doTrigger.bind(this,item));
-  };
-  StreamDistributor.prototype.onSinkDown = function(sinkitem){
-    //there might exist a dead loop during my destroy
-    if(!this.sinks){
-      return;
-    }
-    this.sinks.remove(sinkitem);
-    sinkitem.destroy();
-    sinkitem = null;
-  };
-  return StreamDistributor;
-}
-
-module.exports = createStreamDistributor;
-
-},{}],164:[function(require,module,exports){
-function createStreamLib (lib) {
-  'use strict';
-  var StreamSink = require('./sinkcreator')(lib);
-
-  return {
-    streamSourceCreator: require('./sourcecreator')(lib),
-    StreamSink: StreamSink,
-    StreamBlackHole: require('./blackholecreator')(lib),
-    StreamSinkBunch: require('./sinkbunchcreator')(lib,StreamSink),
-    StreamDistributor: require('./distributorcreator')(lib,StreamSink)
-  };
-}
-
-module.exports = createStreamLib;
-
-},{"./blackholecreator":162,"./distributorcreator":163,"./sinkbunchcreator":165,"./sinkcreator":166,"./sourcecreator":167}],165:[function(require,module,exports){
-function createStreamSinkBunch(lib,StreamSink){
-  'use strict';
-  function StreamSinkBunch(arryofsinks){
-    StreamSink.call(this);
-    this.arry = arryofsinks;
-  }
-  lib.inherit(StreamSinkBunch,StreamSink);
-  StreamSinkBunch.prototype.destroy = function(){
-    this.arry = null;
-  };
-  StreamSinkBunch.prototype.destroyWithSinks = function(){
-    lib.arryDestroyAll(this.arry);
-    this.destroy();
-  };
-  StreamSinkBunch.prototype.onStream = function(item){
-    if(!this.arry){
-      return;
-    }
-    this.arry.forEach(function(sink){
-      sink.onStream(item);
-    });
-    item = null;
-  };
-  return StreamSinkBunch;
-}
-
-module.exports = createStreamSinkBunch;
-
-},{}],166:[function(require,module,exports){
-function createStreamSink(lib){
-  'use strict';
-  function StreamSink(){
-  }
-  StreamSink.prototype.destroy = lib.dummyFunc;
-  StreamSink.prototype.onStream = function(item){
-  };
-  return StreamSink;
-}
-
-module.exports = createStreamSink;
-
-},{}],167:[function(require,module,exports){
-(function (process){(function (){
-function createGenericStreamSource(lib){
-  'use strict';
-  return function createStreamSource(StreamCoder, nosafetybelt, bufferctor){
-    function StreamSource(destroysinktoo){
-      StreamCoder.call(this);
-      this.destroysinktoo = destroysinktoo;
-      this.sink = null;
-    }
-    lib.inherit(StreamSource,StreamCoder);
-    function produceMethodForwarder(method,methodname){
-      var scpm = StreamCoder.prototype[methodname];
-      StreamSource.prototype[methodname] = function(){
-        this.handleStreamItem(scpm.apply(this,arguments));
-      };
-    }
-    lib.traverse(StreamCoder.prototype,produceMethodForwarder);
-    StreamSource.prototype.destroy = function(){
-      if(this.buffer){
-        this.buffer.destroy();
-        this.buffer = null;
-      }
-      if(this.destroysinktoo && this.sink){
-        this.sink.destroy();
-      }
-      this.sink = null;
-      this.destroysinktoo = null;
-      StreamCoder.prototype.destroy.call(this);
-    };
-    StreamSource.prototype.handleStreamItem = function(item){
-      if(this.sink){
-        this.sink.onStream(item);
-      }else{
-        if (!this.buffer) {
-          this.createBuffer();
-        }
-        if (this.buffer) {
-          this.buffer.push(item);
-        }
-      }
-    };
-    StreamSource.prototype.createBuffer = function () {
-      this.buffer = new (bufferctor || lib.Fifo) ();
-      if (!nosafetybelt) {
-        lib.runNext(this.checkOnBuffer.bind(this), 5000);
-      }
-    };
-    if (!nosafetybelt) {
-      StreamSource.prototype.checkOnBuffer = function () {
-        if (this.buffer) {
-          this.buffer.destroy();
-          this.buffer = null;
-        }
-      };
-    }
-    function bufferItemDumper(item){
-        console.log(process.pid, item);
-      }
-    StreamSource.prototype.dumpBufferToConsole = function () {
-      this.buffer.container.traverse(bufferItemDumper);
-    };
-    StreamSource.prototype.onStream = StreamSource.prototype.handleStreamItem;
-    function doItem(sc,path,item,itemname){
-      if('object' === typeof item){
-        path.push(itemname);
-        sc.newCollection(path);
-        lib.traverse(item,doItem.bind(null,sc,path));
-        path.pop();
-      }else{
-        path.push(itemname);
-        sc.newScalar(path,item);
-        path.pop();
-      }
-    }
-    StreamSource.prototype.doHash = function(hash){
-      lib.traverseShallow(hash,doItem.bind(null,this,[]));
-    };
-    StreamSource.prototype.setSink = function(sink){
-      this.sink = sink;
-      if(this.sink && this.buffer && this.buffer.length){
-        this.buffer.drain(this.sink.onStream.bind(this.sink));
-      }
-    };
-    StreamSource.chain = function(filterarry){
-      return new StreamChain(filterarry);
-    };
-    StreamSource.prototype.Coder = StreamCoder;
-
-    function chainer(filter,index,filters){
-      var last;
-      if(index===0){
-        return;
-      }
-      last = filters[index-1];
-      if(!lib.isFunction(filter.onStream)){
-        throw new Error('Filter chain link at index '+index+' is not a StreamSink');
-      }
-      if(!lib.isFunction(last.setSink)){
-        throw new Error('Filter chain link at index '+(index-1)+' is not a StreamSource');
-      }
-      last.setSink(filter);
-    }
-    function StreamChain (filterarry) {
-      this.filters = filterarry;
-      filterarry.forEach(chainer);
-    }
-    StreamChain.prototype.destroy = function () {
-      if (this.filters) {
-        lib.arryDestroyAll(this.filters);
-      }
-      this.filters = null;
-    };
-    StreamChain.prototype.handleStreamItem = function (item) {
-      if (!(this.filters && this.filters.length)) {
-        return;
-      }
-      return this.filters[0].handleStreamItem(item);
-    };
-    StreamChain.prototype.onStream = StreamChain.prototype.handleStreamItem;
-    StreamChain.prototype.setSink = function (sink) {
-      if (!(this.filters && this.filters.length)) {
-        return;
-      }
-      return this.filters[this.filters.length-1].setSink(sink);
-    };
-    return StreamSource;
-  };
-}
-
-module.exports = createGenericStreamSource;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],168:[function(require,module,exports){
-(function (process){(function (){
-function createTask(execlib){
-  'use strict';
-  var lib = execlib.lib,
-      execSuite = execlib.execSuite,
-      taskRegistry = execSuite.taskRegistry,
-      ResolvableTaskError = execSuite.ResolvableTaskError;
-  function TaskConstructionError(missingpropname){
-    var ret = new lib.Error('TASK_CONSTRUCTION_ERROR','Constructor property hash lacks the '+missingpropname+' property');
-    ret.missingpropname = missingpropname;
-    return ret;
-  };
-  lib.inherit(TaskConstructionError,lib.Error);
-  function propExistenceChecker(prophash,compulsorypropname){
-    if(!(compulsorypropname in prophash)){
-      //console.log('TASK CONSTRUCTION PROPHASH FAILED',prophash, compulsorypropname);
-      throw new TaskConstructionError(compulsorypropname);
-    }
-  }
-  function Task(prophash){
-    //console.log('!!! Task compulsoryConstructionProperties',this.compulsoryConstructionProperties);
-    this.compulsoryConstructionProperties.forEach(propExistenceChecker.bind(null,prophash));
-    if(!prophash.debug){
-      this.log = lib.dummyFunc;
-    }
-  };
-  Task.prototype.destroy = lib.dummyFunc;
-  Task.prototype.raiseException = function(e){
-    if(!e.code){
-      throw new lib.NotAnAllexErrorError(e);
-    }
-    /* TODO: Recognize a ResolvableTaskError
-    if(!(e instanceof ResolvableTaskError)){
-      console.log(e,'not instanceof',ResolvableTaskError);
-      throw "Sta sad?";
-    }
-    */
-    taskRegistry.registerException(this,e);
-  };
-  Task.prototype.log = function(){
-    var args = Array.prototype.slice.call(arguments);
-    if(this.debugPid){
-      args.unshift(process.pid);
-    }
-    console.log.apply(console,args);
-  };
-  Task.prototype.debugMode = function () {
-    return this.log !== lib.dummyFunc;
-  };
-  Task.prototype.compulsoryConstructionProperties = [];
-  return Task;
-}
-
-module.exports = createTask;
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],169:[function(require,module,exports){
-function createDestroyableTask(execlib){
-  'use strict';
-  var lib = execlib.lib,
-      Destroyable = lib.Destroyable,
-      Task = execlib.execSuite.Task;
-  function DestroyableTask(prophash,destroyablenameinprophash){
-    if(!destroyablenameinprophash){
-      throw new lib.Error('NO_NAME_OF_DESTROYABLE_FOR_TASK_PROPERTYHASH','DestroyableTask needs a second construction parameter: destroyablenameinprophash');
-    }
-    if(!(destroyablenameinprophash in prophash)){
-      throw new lib.Error('NO_DESTROYABLE_FOUND_IN_TASK_PROPERTYHASH',destroyablenameinprophash+' does not map to a Destroyable in propertyhash');
-    }
-    var d = prophash[destroyablenameinprophash];
-    if(!d) {
-      throw new lib.Error('NO_DESTROYABLE_FOUND_IN_TASK_PROPERTYHASH',destroyablenameinprophash+' does not map to a Destroyable in propertyhash');
-    }
-    if(!(d.destroyed && d.destroyed.attach)){
-      var e = new lib.Error('NOT_A_DESTROYABLE',destroyablenameinprophash+' maps to something that is not a Destroyable');
-      e.destroyablename = destroyablenameinprophash;
-      e.notDestroyable = d;
-      throw e;
-    }
-    Destroyable.call(this);
-    Task.call(this,prophash);
-    this.destroyListener = d.destroyed.attach(this.destroy.bind(this));
-  }
-  lib.inherit(DestroyableTask,Task);
-  lib.inheritMethods(DestroyableTask,Destroyable,'destroy','extendTo');
-  DestroyableTask.prototype.__cleanUp = function(){
-    if(!this.destroyListener){
-      return;
-    }
-    this.destroyListener.destroy();
-    this.destroyListener = null;
-    Task.prototype.destroy.call(this);
-    Destroyable.prototype.__cleanUp.call(this);
-  };
-  return DestroyableTask;
-}
-
-module.exports = createDestroyableTask;
-
-},{}],170:[function(require,module,exports){
-function createTaskSuite(execlib){
-  'use strict';
-  var execSuite = execlib.execSuite,
-      taskSuite = {
-        UnknownTaskClassError: require('./unknowntaskclasserrorcreator')(execlib),
-        NotATaskDescriptorError: require('./notataskdescriptorerrorcreator')(execlib),
-        ResolvableTaskError: require('./resolvableerrorcreator')(execlib)
-      };
-  require('./registrycreator')(execlib,taskSuite);
-  execSuite.ResolvableTaskError = taskSuite.ResolvableTaskError;
-  execSuite.Task = require('./creator')(execlib);
-  execSuite.DestroyableTask = require('./destroyabletaskcreator')(execlib);
-  execSuite.MultiDestroyableTask = require('./multidestroyabletaskcreator')(execlib);
-  execSuite.SinkTask = require('./sinktaskcreator')(execlib);
-}
-
-module.exports = createTaskSuite;
-
-},{"./creator":168,"./destroyabletaskcreator":169,"./multidestroyabletaskcreator":171,"./notataskdescriptorerrorcreator":172,"./registrycreator":173,"./resolvableerrorcreator":174,"./sinktaskcreator":175,"./unknowntaskclasserrorcreator":176}],171:[function(require,module,exports){
-function createMultiDestroyableTask(execlib){
-  'use strict';
-  var lib = execlib.lib,
-      Destroyable = lib.Destroyable,
-      Task = execlib.execSuite.Task;
-
-  function attachDestroyedListener(mdt,prophash,destroyablename){
-    var d = prophash[destroyablename];
-    if(!(d.destroyed && d.destroyed.attach)){
-      var e = new lib.Error('NOT_A_DESTROYABLE',destroyablenameinprophash+' maps to something that is not a Destroyable');
-      e.destroyablename = destroyablenameinprophash;
-      e.notDestroyable = d;
-      throw e;
-    }
-    return d.destroyed.attach(mdt.destroy.bind(mdt));
-  }
-  function MultiDestroyableTask(prophash,destroyablenamesinprophash){
-    if(!lib.isArray(destroyablenamesinprophash)){
-      throw new lib.Error('DESTROYABLE_NAMES_MUST_BE_AN_ARRAY','MultiDestroyableTask needs a second construction parameter - destroyablenamesinprophash - to be an array');
-    }
-    this.destroyListeners = destroyablenamesinprophash.map(attachDestroyedListener.bind(null,this,prophash));
-  }
-  lib.inherit(MultiDestroyableTask,Task);
-  MultiDestroyableTask.prototype.__cleanUp = function(){
-    lib.arryDestroyAll(this.destroyListeners);
-    this.destroyListeners = null;
-  };
-  return MultiDestroyableTask;
-}
-
-module.exports = createMultiDestroyableTask;
-
-},{}],172:[function(require,module,exports){
-function createNotATaskDescriptorError(execlib){
-  'use strict';
-  var lib = execlib.lib;
-  function NotATaskDescriptorError(descriptor){
-    var ret = new lib.Error('NOT_A_TASK_DESCRIPTOR','Provided object does not have the name, klass and optional errorhandlers properties');
-    ret.descriptor = descriptor;
-    return ret;
-  }
-  lib.inherit(NotATaskDescriptorError,lib.Error);
-  return NotATaskDescriptorError;
-}
-
-module.exports = createNotATaskDescriptorError;
-
-},{}],173:[function(require,module,exports){
-var _taskRegistryInstance;
-function createTaskRegistry(execlib,taskSuite){
-  'use strict';
-  var UnknownTaskClassError = taskSuite.UnknownTaskClassError,
-      NotATaskDescriptorError = taskSuite.NotATaskDescriptorError,
-      lib = execlib.lib,
-      execSuite = execlib.execSuite;
-
-  if(execSuite.taskRegistry){
-    return;
-  }
-
-  function MapOfArrays(){
-    lib.Map.call(this);
-  }
-  lib.inherit(MapOfArrays,lib.Map);
-  MapOfArrays.prototype.add = function(name,val){
-    var it = this.get(name);
-    if(!it){
-      it = [];
-      lib.Map.prototype.add.call(this,name,it);
-    }
-    it.push(val);
-  };
-  MapOfArrays.prototype.remove = function(){
-    throw new lib.Error('NO_REMOVAL_FROM_MAP_OF_ARRAYS','Only generic Map remove may be used');
-  };
-  MapOfArrays.prototype.resolve = function(name,prophash){
-    //TODO: now what?
-  };
-
-  function TaskRegistry(){
-    this.modulesDone = new lib.DIContainer();
-    this.ctors = new lib.Map;
-    this.rtExceptions = new MapOfArrays;
-  }
-  TaskRegistry.prototype.destroy = function(){
-    this.ctors.destroy();
-    this.ctors = null;
-    this.modulesDone.destroy();
-  };
-  TaskRegistry.prototype.moduleDone = function (modulename) {
-    var ret = this.modulesDone.busy(modulename);
-    if (!ret) {
-      this.modulesDone.waitFor(modulename);
-    }
-    return ret;
-  };
-  TaskRegistry.prototype.register = function (modulename, tasks) {
-    tasks.forEach(this.registerClass.bind(this));
-    this.modulesDone.register(modulename, true);
-  };
-  TaskRegistry.prototype.registerClass = function(classdescriptor){
-    if('object' !== typeof classdescriptor){
-      throw new NotATaskDescriptorError(classdescriptor);
-    }
-    if(!('name' in classdescriptor)){
-      throw new NotATaskDescriptorError(classdescriptor);
-    }
-    if('function' !== typeof classdescriptor.klass){
-      throw new NotATaskDescriptorError(classdescriptor);
-    }
-    this.ctors.add(classdescriptor.name,classdescriptor.klass);
-  };
-  TaskRegistry.prototype.spawn = function(taskclassname,prophash){
-    var tctor = this.ctors.get(taskclassname);
-    if(!tctor){
-      throw new UnknownTaskClassError(taskclassname);
-    }
-    return new tctor(prophash);
-  };
-  TaskRegistry.prototype.run = function(taskclassname,propertyhash){
-    var ret = this.spawn(taskclassname,propertyhash);
-    ret.go();
-    return ret;
-  };
-  TaskRegistry.prototype.registerException = function(task,e){
-    console.log('should registerException',e,'for',task);
-    this.rtExceptions.add(e.code,task);
-  };
-  TaskRegistry.prototype.hasAll = function (taskpack) {
-    return lib.traverseConditionally(taskpack, this.misses)!==true;
-  };
-  TaskRegistry.prototype.misses = function (taskname) {
-    if (!this.ctors.get(taskname)) {
-      return true;
-    }
-  };
-  execSuite.taskRegistry = new TaskRegistry;
-}
-
-module.exports = createTaskRegistry;
-
-},{}],174:[function(require,module,exports){
-function createResolvableError(execlib){
-  'use strict';
-  var lib = execlib.lib;
-  function ResolvableError(){
-    var ret = lib.Error.call(this,'RESOLVABLE_TASK_ERROR','Task Error that can be resolved by manual intervention');
-    return ret;
-  }
-  lib.inherit(ResolvableError,lib.Error);
-  return ResolvableError;
-}
-
-module.exports = createResolvableError;
-
-},{}],175:[function(require,module,exports){
-function createSinkTask(execlib){
-  'use strict';
-  var lib = execlib.lib,
-      DestroyableTask = execlib.execSuite.DestroyableTask;
-  function SinkTask(prophash){
-    if(this.compulsoryConstructionProperties.indexOf('sink')<0){
-      throw new lib.Error('NO_SINK_IN_COMPULSORY_CONSTRUCTION_PROPERTIES',"This class has to have 'sink' in the prototype.compulsoryConstructionProperties array");
-    }
-    DestroyableTask.call(this,prophash,'sink');
-  }
-  lib.inherit(SinkTask,DestroyableTask);
-  SinkTask.prototype.__cleanUp = function(){
-    DestroyableTask.prototype.__cleanUp.call(this);
-  };
-  return SinkTask;
-}
-
-module.exports = createSinkTask;
-
-},{}],176:[function(require,module,exports){
-function createUnknownTaskClassError(execlib){
-  'use strict';
-  var lib = execlib.lib;
-  function UnknownTaskClassError(classname){
-    var ret = new lib.Error('UNKNOWN_TASK_CLASS','Task Class has not been registered under name '+classname);
-    ret.classname = classname;
-    return ret;
-  }
-  lib.inherit(UnknownTaskClassError,lib.Error);
-  return UnknownTaskClassError;
-}
-
-module.exports = createUnknownTaskClassError;
-
-},{}],177:[function(require,module,exports){
+},{"../node_modules/allex_servicepackservercorelib/authentication/sinkmapcreator":95,"../node_modules/allex_servicepackservercorelib/base/sinkmapcreator":100,"../node_modules/allex_servicepackservercorelib/base/taskcreator":103,"../node_modules/allex_servicepackservercorelib/servicesink":114,"allex_arrayoperationslowlevellib":1,"allex_callableservercorelib":7,"allex_clientcore":9,"allex_transportservercorelib":160}],183:[function(require,module,exports){
 'use strict';
 
 const asn1 = exports;
@@ -15340,7 +15925,7 @@ asn1.constants = require('./asn1/constants');
 asn1.decoders = require('./asn1/decoders');
 asn1.encoders = require('./asn1/encoders');
 
-},{"./asn1/api":178,"./asn1/base":180,"./asn1/constants":184,"./asn1/decoders":186,"./asn1/encoders":189,"bn.js":191}],178:[function(require,module,exports){
+},{"./asn1/api":184,"./asn1/base":186,"./asn1/constants":190,"./asn1/decoders":192,"./asn1/encoders":195,"bn.js":197}],184:[function(require,module,exports){
 'use strict';
 
 const encoders = require('./encoders');
@@ -15399,7 +15984,7 @@ Entity.prototype.encode = function encode(data, enc, /* internal */ reporter) {
   return this._getEncoder(enc).encode(data, reporter);
 };
 
-},{"./decoders":186,"./encoders":189,"inherits":310}],179:[function(require,module,exports){
+},{"./decoders":192,"./encoders":195,"inherits":332}],185:[function(require,module,exports){
 'use strict';
 
 const inherits = require('inherits');
@@ -15554,7 +16139,7 @@ EncoderBuffer.prototype.join = function join(out, offset) {
   return out;
 };
 
-},{"../base/reporter":182,"inherits":310,"safer-buffer":363}],180:[function(require,module,exports){
+},{"../base/reporter":188,"inherits":332,"safer-buffer":371}],186:[function(require,module,exports){
 'use strict';
 
 const base = exports;
@@ -15564,7 +16149,7 @@ base.DecoderBuffer = require('./buffer').DecoderBuffer;
 base.EncoderBuffer = require('./buffer').EncoderBuffer;
 base.Node = require('./node');
 
-},{"./buffer":179,"./node":181,"./reporter":182}],181:[function(require,module,exports){
+},{"./buffer":185,"./node":187,"./reporter":188}],187:[function(require,module,exports){
 'use strict';
 
 const Reporter = require('../base/reporter').Reporter;
@@ -16204,7 +16789,7 @@ Node.prototype._isPrintstr = function isPrintstr(str) {
   return /^[A-Za-z0-9 '()+,-./:=?]*$/.test(str);
 };
 
-},{"../base/buffer":179,"../base/reporter":182,"minimalistic-assert":316}],182:[function(require,module,exports){
+},{"../base/buffer":185,"../base/reporter":188,"minimalistic-assert":339}],188:[function(require,module,exports){
 'use strict';
 
 const inherits = require('inherits');
@@ -16329,7 +16914,7 @@ ReporterError.prototype.rethrow = function rethrow(msg) {
   return this;
 };
 
-},{"inherits":310}],183:[function(require,module,exports){
+},{"inherits":332}],189:[function(require,module,exports){
 'use strict';
 
 // Helper
@@ -16389,7 +16974,7 @@ exports.tag = {
 };
 exports.tagByName = reverse(exports.tag);
 
-},{}],184:[function(require,module,exports){
+},{}],190:[function(require,module,exports){
 'use strict';
 
 const constants = exports;
@@ -16412,7 +16997,7 @@ constants._reverse = function reverse(map) {
 
 constants.der = require('./der');
 
-},{"./der":183}],185:[function(require,module,exports){
+},{"./der":189}],191:[function(require,module,exports){
 'use strict';
 
 const inherits = require('inherits');
@@ -16749,7 +17334,7 @@ function derDecodeLen(buf, primitive, fail) {
   return len;
 }
 
-},{"../base/buffer":179,"../base/node":181,"../constants/der":183,"bn.js":191,"inherits":310}],186:[function(require,module,exports){
+},{"../base/buffer":185,"../base/node":187,"../constants/der":189,"bn.js":197,"inherits":332}],192:[function(require,module,exports){
 'use strict';
 
 const decoders = exports;
@@ -16757,7 +17342,7 @@ const decoders = exports;
 decoders.der = require('./der');
 decoders.pem = require('./pem');
 
-},{"./der":185,"./pem":187}],187:[function(require,module,exports){
+},{"./der":191,"./pem":193}],193:[function(require,module,exports){
 'use strict';
 
 const inherits = require('inherits');
@@ -16810,7 +17395,7 @@ PEMDecoder.prototype.decode = function decode(data, options) {
   return DERDecoder.prototype.decode.call(this, input, options);
 };
 
-},{"./der":185,"inherits":310,"safer-buffer":363}],188:[function(require,module,exports){
+},{"./der":191,"inherits":332,"safer-buffer":371}],194:[function(require,module,exports){
 'use strict';
 
 const inherits = require('inherits');
@@ -17107,7 +17692,7 @@ function encodeTag(tag, primitive, cls, reporter) {
   return res;
 }
 
-},{"../base/node":181,"../constants/der":183,"inherits":310,"safer-buffer":363}],189:[function(require,module,exports){
+},{"../base/node":187,"../constants/der":189,"inherits":332,"safer-buffer":371}],195:[function(require,module,exports){
 'use strict';
 
 const encoders = exports;
@@ -17115,7 +17700,7 @@ const encoders = exports;
 encoders.der = require('./der');
 encoders.pem = require('./pem');
 
-},{"./der":188,"./pem":190}],190:[function(require,module,exports){
+},{"./der":194,"./pem":196}],196:[function(require,module,exports){
 'use strict';
 
 const inherits = require('inherits');
@@ -17140,7 +17725,7 @@ PEMEncoder.prototype.encode = function encode(data, options) {
   return out.join('\n');
 };
 
-},{"./der":188,"inherits":310}],191:[function(require,module,exports){
+},{"./der":194,"inherits":332}],197:[function(require,module,exports){
 (function (module, exports) {
   'use strict';
 
@@ -20588,7 +21173,1170 @@ PEMEncoder.prototype.encode = function encode(data, options) {
   };
 })(typeof module === 'undefined' || module, this);
 
-},{"buffer":195}],192:[function(require,module,exports){
+},{"buffer":206}],198:[function(require,module,exports){
+(function (global){(function (){
+'use strict';
+
+var objectAssign = require('object-assign');
+
+// compare and isBuffer taken from https://github.com/feross/buffer/blob/680e9e5e488f22aac27599a57dc844a6315928dd/index.js
+// original notice:
+
+/*!
+ * The buffer module from node.js, for the browser.
+ *
+ * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
+ * @license  MIT
+ */
+function compare(a, b) {
+  if (a === b) {
+    return 0;
+  }
+
+  var x = a.length;
+  var y = b.length;
+
+  for (var i = 0, len = Math.min(x, y); i < len; ++i) {
+    if (a[i] !== b[i]) {
+      x = a[i];
+      y = b[i];
+      break;
+    }
+  }
+
+  if (x < y) {
+    return -1;
+  }
+  if (y < x) {
+    return 1;
+  }
+  return 0;
+}
+function isBuffer(b) {
+  if (global.Buffer && typeof global.Buffer.isBuffer === 'function') {
+    return global.Buffer.isBuffer(b);
+  }
+  return !!(b != null && b._isBuffer);
+}
+
+// based on node assert, original notice:
+// NB: The URL to the CommonJS spec is kept just for tradition.
+//     node-assert has evolved a lot since then, both in API and behavior.
+
+// http://wiki.commonjs.org/wiki/Unit_Testing/1.0
+//
+// THIS IS NOT TESTED NOR LIKELY TO WORK OUTSIDE V8!
+//
+// Originally from narwhal.js (http://narwhaljs.org)
+// Copyright (c) 2009 Thomas Robinson <280north.com>
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the 'Software'), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+// ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+// WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+var util = require('util/');
+var hasOwn = Object.prototype.hasOwnProperty;
+var pSlice = Array.prototype.slice;
+var functionsHaveNames = (function () {
+  return function foo() {}.name === 'foo';
+}());
+function pToString (obj) {
+  return Object.prototype.toString.call(obj);
+}
+function isView(arrbuf) {
+  if (isBuffer(arrbuf)) {
+    return false;
+  }
+  if (typeof global.ArrayBuffer !== 'function') {
+    return false;
+  }
+  if (typeof ArrayBuffer.isView === 'function') {
+    return ArrayBuffer.isView(arrbuf);
+  }
+  if (!arrbuf) {
+    return false;
+  }
+  if (arrbuf instanceof DataView) {
+    return true;
+  }
+  if (arrbuf.buffer && arrbuf.buffer instanceof ArrayBuffer) {
+    return true;
+  }
+  return false;
+}
+// 1. The assert module provides functions that throw
+// AssertionError's when particular conditions are not met. The
+// assert module must conform to the following interface.
+
+var assert = module.exports = ok;
+
+// 2. The AssertionError is defined in assert.
+// new assert.AssertionError({ message: message,
+//                             actual: actual,
+//                             expected: expected })
+
+var regex = /\s*function\s+([^\(\s]*)\s*/;
+// based on https://github.com/ljharb/function.prototype.name/blob/adeeeec8bfcc6068b187d7d9fb3d5bb1d3a30899/implementation.js
+function getName(func) {
+  if (!util.isFunction(func)) {
+    return;
+  }
+  if (functionsHaveNames) {
+    return func.name;
+  }
+  var str = func.toString();
+  var match = str.match(regex);
+  return match && match[1];
+}
+assert.AssertionError = function AssertionError(options) {
+  this.name = 'AssertionError';
+  this.actual = options.actual;
+  this.expected = options.expected;
+  this.operator = options.operator;
+  if (options.message) {
+    this.message = options.message;
+    this.generatedMessage = false;
+  } else {
+    this.message = getMessage(this);
+    this.generatedMessage = true;
+  }
+  var stackStartFunction = options.stackStartFunction || fail;
+  if (Error.captureStackTrace) {
+    Error.captureStackTrace(this, stackStartFunction);
+  } else {
+    // non v8 browsers so we can have a stacktrace
+    var err = new Error();
+    if (err.stack) {
+      var out = err.stack;
+
+      // try to strip useless frames
+      var fn_name = getName(stackStartFunction);
+      var idx = out.indexOf('\n' + fn_name);
+      if (idx >= 0) {
+        // once we have located the function frame
+        // we need to strip out everything before it (and its line)
+        var next_line = out.indexOf('\n', idx + 1);
+        out = out.substring(next_line + 1);
+      }
+
+      this.stack = out;
+    }
+  }
+};
+
+// assert.AssertionError instanceof Error
+util.inherits(assert.AssertionError, Error);
+
+function truncate(s, n) {
+  if (typeof s === 'string') {
+    return s.length < n ? s : s.slice(0, n);
+  } else {
+    return s;
+  }
+}
+function inspect(something) {
+  if (functionsHaveNames || !util.isFunction(something)) {
+    return util.inspect(something);
+  }
+  var rawname = getName(something);
+  var name = rawname ? ': ' + rawname : '';
+  return '[Function' +  name + ']';
+}
+function getMessage(self) {
+  return truncate(inspect(self.actual), 128) + ' ' +
+         self.operator + ' ' +
+         truncate(inspect(self.expected), 128);
+}
+
+// At present only the three keys mentioned above are used and
+// understood by the spec. Implementations or sub modules can pass
+// other keys to the AssertionError's constructor - they will be
+// ignored.
+
+// 3. All of the following functions must throw an AssertionError
+// when a corresponding condition is not met, with a message that
+// may be undefined if not provided.  All assertion methods provide
+// both the actual and expected values to the assertion error for
+// display purposes.
+
+function fail(actual, expected, message, operator, stackStartFunction) {
+  throw new assert.AssertionError({
+    message: message,
+    actual: actual,
+    expected: expected,
+    operator: operator,
+    stackStartFunction: stackStartFunction
+  });
+}
+
+// EXTENSION! allows for well behaved errors defined elsewhere.
+assert.fail = fail;
+
+// 4. Pure assertion tests whether a value is truthy, as determined
+// by !!guard.
+// assert.ok(guard, message_opt);
+// This statement is equivalent to assert.equal(true, !!guard,
+// message_opt);. To test strictly for the value true, use
+// assert.strictEqual(true, guard, message_opt);.
+
+function ok(value, message) {
+  if (!value) fail(value, true, message, '==', assert.ok);
+}
+assert.ok = ok;
+
+// 5. The equality assertion tests shallow, coercive equality with
+// ==.
+// assert.equal(actual, expected, message_opt);
+
+assert.equal = function equal(actual, expected, message) {
+  if (actual != expected) fail(actual, expected, message, '==', assert.equal);
+};
+
+// 6. The non-equality assertion tests for whether two objects are not equal
+// with != assert.notEqual(actual, expected, message_opt);
+
+assert.notEqual = function notEqual(actual, expected, message) {
+  if (actual == expected) {
+    fail(actual, expected, message, '!=', assert.notEqual);
+  }
+};
+
+// 7. The equivalence assertion tests a deep equality relation.
+// assert.deepEqual(actual, expected, message_opt);
+
+assert.deepEqual = function deepEqual(actual, expected, message) {
+  if (!_deepEqual(actual, expected, false)) {
+    fail(actual, expected, message, 'deepEqual', assert.deepEqual);
+  }
+};
+
+assert.deepStrictEqual = function deepStrictEqual(actual, expected, message) {
+  if (!_deepEqual(actual, expected, true)) {
+    fail(actual, expected, message, 'deepStrictEqual', assert.deepStrictEqual);
+  }
+};
+
+function _deepEqual(actual, expected, strict, memos) {
+  // 7.1. All identical values are equivalent, as determined by ===.
+  if (actual === expected) {
+    return true;
+  } else if (isBuffer(actual) && isBuffer(expected)) {
+    return compare(actual, expected) === 0;
+
+  // 7.2. If the expected value is a Date object, the actual value is
+  // equivalent if it is also a Date object that refers to the same time.
+  } else if (util.isDate(actual) && util.isDate(expected)) {
+    return actual.getTime() === expected.getTime();
+
+  // 7.3 If the expected value is a RegExp object, the actual value is
+  // equivalent if it is also a RegExp object with the same source and
+  // properties (`global`, `multiline`, `lastIndex`, `ignoreCase`).
+  } else if (util.isRegExp(actual) && util.isRegExp(expected)) {
+    return actual.source === expected.source &&
+           actual.global === expected.global &&
+           actual.multiline === expected.multiline &&
+           actual.lastIndex === expected.lastIndex &&
+           actual.ignoreCase === expected.ignoreCase;
+
+  // 7.4. Other pairs that do not both pass typeof value == 'object',
+  // equivalence is determined by ==.
+  } else if ((actual === null || typeof actual !== 'object') &&
+             (expected === null || typeof expected !== 'object')) {
+    return strict ? actual === expected : actual == expected;
+
+  // If both values are instances of typed arrays, wrap their underlying
+  // ArrayBuffers in a Buffer each to increase performance
+  // This optimization requires the arrays to have the same type as checked by
+  // Object.prototype.toString (aka pToString). Never perform binary
+  // comparisons for Float*Arrays, though, since e.g. +0 === -0 but their
+  // bit patterns are not identical.
+  } else if (isView(actual) && isView(expected) &&
+             pToString(actual) === pToString(expected) &&
+             !(actual instanceof Float32Array ||
+               actual instanceof Float64Array)) {
+    return compare(new Uint8Array(actual.buffer),
+                   new Uint8Array(expected.buffer)) === 0;
+
+  // 7.5 For all other Object pairs, including Array objects, equivalence is
+  // determined by having the same number of owned properties (as verified
+  // with Object.prototype.hasOwnProperty.call), the same set of keys
+  // (although not necessarily the same order), equivalent values for every
+  // corresponding key, and an identical 'prototype' property. Note: this
+  // accounts for both named and indexed properties on Arrays.
+  } else if (isBuffer(actual) !== isBuffer(expected)) {
+    return false;
+  } else {
+    memos = memos || {actual: [], expected: []};
+
+    var actualIndex = memos.actual.indexOf(actual);
+    if (actualIndex !== -1) {
+      if (actualIndex === memos.expected.indexOf(expected)) {
+        return true;
+      }
+    }
+
+    memos.actual.push(actual);
+    memos.expected.push(expected);
+
+    return objEquiv(actual, expected, strict, memos);
+  }
+}
+
+function isArguments(object) {
+  return Object.prototype.toString.call(object) == '[object Arguments]';
+}
+
+function objEquiv(a, b, strict, actualVisitedObjects) {
+  if (a === null || a === undefined || b === null || b === undefined)
+    return false;
+  // if one is a primitive, the other must be same
+  if (util.isPrimitive(a) || util.isPrimitive(b))
+    return a === b;
+  if (strict && Object.getPrototypeOf(a) !== Object.getPrototypeOf(b))
+    return false;
+  var aIsArgs = isArguments(a);
+  var bIsArgs = isArguments(b);
+  if ((aIsArgs && !bIsArgs) || (!aIsArgs && bIsArgs))
+    return false;
+  if (aIsArgs) {
+    a = pSlice.call(a);
+    b = pSlice.call(b);
+    return _deepEqual(a, b, strict);
+  }
+  var ka = objectKeys(a);
+  var kb = objectKeys(b);
+  var key, i;
+  // having the same number of owned properties (keys incorporates
+  // hasOwnProperty)
+  if (ka.length !== kb.length)
+    return false;
+  //the same set of keys (although not necessarily the same order),
+  ka.sort();
+  kb.sort();
+  //~~~cheap key test
+  for (i = ka.length - 1; i >= 0; i--) {
+    if (ka[i] !== kb[i])
+      return false;
+  }
+  //equivalent values for every corresponding key, and
+  //~~~possibly expensive deep test
+  for (i = ka.length - 1; i >= 0; i--) {
+    key = ka[i];
+    if (!_deepEqual(a[key], b[key], strict, actualVisitedObjects))
+      return false;
+  }
+  return true;
+}
+
+// 8. The non-equivalence assertion tests for any deep inequality.
+// assert.notDeepEqual(actual, expected, message_opt);
+
+assert.notDeepEqual = function notDeepEqual(actual, expected, message) {
+  if (_deepEqual(actual, expected, false)) {
+    fail(actual, expected, message, 'notDeepEqual', assert.notDeepEqual);
+  }
+};
+
+assert.notDeepStrictEqual = notDeepStrictEqual;
+function notDeepStrictEqual(actual, expected, message) {
+  if (_deepEqual(actual, expected, true)) {
+    fail(actual, expected, message, 'notDeepStrictEqual', notDeepStrictEqual);
+  }
+}
+
+
+// 9. The strict equality assertion tests strict equality, as determined by ===.
+// assert.strictEqual(actual, expected, message_opt);
+
+assert.strictEqual = function strictEqual(actual, expected, message) {
+  if (actual !== expected) {
+    fail(actual, expected, message, '===', assert.strictEqual);
+  }
+};
+
+// 10. The strict non-equality assertion tests for strict inequality, as
+// determined by !==.  assert.notStrictEqual(actual, expected, message_opt);
+
+assert.notStrictEqual = function notStrictEqual(actual, expected, message) {
+  if (actual === expected) {
+    fail(actual, expected, message, '!==', assert.notStrictEqual);
+  }
+};
+
+function expectedException(actual, expected) {
+  if (!actual || !expected) {
+    return false;
+  }
+
+  if (Object.prototype.toString.call(expected) == '[object RegExp]') {
+    return expected.test(actual);
+  }
+
+  try {
+    if (actual instanceof expected) {
+      return true;
+    }
+  } catch (e) {
+    // Ignore.  The instanceof check doesn't work for arrow functions.
+  }
+
+  if (Error.isPrototypeOf(expected)) {
+    return false;
+  }
+
+  return expected.call({}, actual) === true;
+}
+
+function _tryBlock(block) {
+  var error;
+  try {
+    block();
+  } catch (e) {
+    error = e;
+  }
+  return error;
+}
+
+function _throws(shouldThrow, block, expected, message) {
+  var actual;
+
+  if (typeof block !== 'function') {
+    throw new TypeError('"block" argument must be a function');
+  }
+
+  if (typeof expected === 'string') {
+    message = expected;
+    expected = null;
+  }
+
+  actual = _tryBlock(block);
+
+  message = (expected && expected.name ? ' (' + expected.name + ').' : '.') +
+            (message ? ' ' + message : '.');
+
+  if (shouldThrow && !actual) {
+    fail(actual, expected, 'Missing expected exception' + message);
+  }
+
+  var userProvidedMessage = typeof message === 'string';
+  var isUnwantedException = !shouldThrow && util.isError(actual);
+  var isUnexpectedException = !shouldThrow && actual && !expected;
+
+  if ((isUnwantedException &&
+      userProvidedMessage &&
+      expectedException(actual, expected)) ||
+      isUnexpectedException) {
+    fail(actual, expected, 'Got unwanted exception' + message);
+  }
+
+  if ((shouldThrow && actual && expected &&
+      !expectedException(actual, expected)) || (!shouldThrow && actual)) {
+    throw actual;
+  }
+}
+
+// 11. Expected to throw an error:
+// assert.throws(block, Error_opt, message_opt);
+
+assert.throws = function(block, /*optional*/error, /*optional*/message) {
+  _throws(true, block, error, message);
+};
+
+// EXTENSION! This is annoying to write outside this module.
+assert.doesNotThrow = function(block, /*optional*/error, /*optional*/message) {
+  _throws(false, block, error, message);
+};
+
+assert.ifError = function(err) { if (err) throw err; };
+
+// Expose a strict only variant of assert
+function strict(value, message) {
+  if (!value) fail(value, true, message, '==', strict);
+}
+assert.strict = objectAssign(strict, assert, {
+  equal: assert.strictEqual,
+  deepEqual: assert.deepStrictEqual,
+  notEqual: assert.notStrictEqual,
+  notDeepEqual: assert.notDeepStrictEqual
+});
+assert.strict.strict = assert.strict;
+
+var objectKeys = Object.keys || function (obj) {
+  var keys = [];
+  for (var key in obj) {
+    if (hasOwn.call(obj, key)) keys.push(key);
+  }
+  return keys;
+};
+
+}).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"object-assign":341,"util/":201}],199:[function(require,module,exports){
+if (typeof Object.create === 'function') {
+  // implementation from standard node.js 'util' module
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    ctor.prototype = Object.create(superCtor.prototype, {
+      constructor: {
+        value: ctor,
+        enumerable: false,
+        writable: true,
+        configurable: true
+      }
+    });
+  };
+} else {
+  // old school shim for old browsers
+  module.exports = function inherits(ctor, superCtor) {
+    ctor.super_ = superCtor
+    var TempCtor = function () {}
+    TempCtor.prototype = superCtor.prototype
+    ctor.prototype = new TempCtor()
+    ctor.prototype.constructor = ctor
+  }
+}
+
+},{}],200:[function(require,module,exports){
+module.exports = function isBuffer(arg) {
+  return arg && typeof arg === 'object'
+    && typeof arg.copy === 'function'
+    && typeof arg.fill === 'function'
+    && typeof arg.readUInt8 === 'function';
+}
+},{}],201:[function(require,module,exports){
+(function (process,global){(function (){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+var formatRegExp = /%[sdj%]/g;
+exports.format = function(f) {
+  if (!isString(f)) {
+    var objects = [];
+    for (var i = 0; i < arguments.length; i++) {
+      objects.push(inspect(arguments[i]));
+    }
+    return objects.join(' ');
+  }
+
+  var i = 1;
+  var args = arguments;
+  var len = args.length;
+  var str = String(f).replace(formatRegExp, function(x) {
+    if (x === '%%') return '%';
+    if (i >= len) return x;
+    switch (x) {
+      case '%s': return String(args[i++]);
+      case '%d': return Number(args[i++]);
+      case '%j':
+        try {
+          return JSON.stringify(args[i++]);
+        } catch (_) {
+          return '[Circular]';
+        }
+      default:
+        return x;
+    }
+  });
+  for (var x = args[i]; i < len; x = args[++i]) {
+    if (isNull(x) || !isObject(x)) {
+      str += ' ' + x;
+    } else {
+      str += ' ' + inspect(x);
+    }
+  }
+  return str;
+};
+
+
+// Mark that a method should not be used.
+// Returns a modified function which warns once by default.
+// If --no-deprecation is set, then it is a no-op.
+exports.deprecate = function(fn, msg) {
+  // Allow for deprecating things in the process of starting up.
+  if (isUndefined(global.process)) {
+    return function() {
+      return exports.deprecate(fn, msg).apply(this, arguments);
+    };
+  }
+
+  if (process.noDeprecation === true) {
+    return fn;
+  }
+
+  var warned = false;
+  function deprecated() {
+    if (!warned) {
+      if (process.throwDeprecation) {
+        throw new Error(msg);
+      } else if (process.traceDeprecation) {
+        console.trace(msg);
+      } else {
+        console.error(msg);
+      }
+      warned = true;
+    }
+    return fn.apply(this, arguments);
+  }
+
+  return deprecated;
+};
+
+
+var debugs = {};
+var debugEnviron;
+exports.debuglog = function(set) {
+  if (isUndefined(debugEnviron))
+    debugEnviron = process.env.NODE_DEBUG || '';
+  set = set.toUpperCase();
+  if (!debugs[set]) {
+    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
+      var pid = process.pid;
+      debugs[set] = function() {
+        var msg = exports.format.apply(exports, arguments);
+        console.error('%s %d: %s', set, pid, msg);
+      };
+    } else {
+      debugs[set] = function() {};
+    }
+  }
+  return debugs[set];
+};
+
+
+/**
+ * Echos the value of a value. Trys to print the value out
+ * in the best way possible given the different types.
+ *
+ * @param {Object} obj The object to print out.
+ * @param {Object} opts Optional options object that alters the output.
+ */
+/* legacy: obj, showHidden, depth, colors*/
+function inspect(obj, opts) {
+  // default options
+  var ctx = {
+    seen: [],
+    stylize: stylizeNoColor
+  };
+  // legacy...
+  if (arguments.length >= 3) ctx.depth = arguments[2];
+  if (arguments.length >= 4) ctx.colors = arguments[3];
+  if (isBoolean(opts)) {
+    // legacy...
+    ctx.showHidden = opts;
+  } else if (opts) {
+    // got an "options" object
+    exports._extend(ctx, opts);
+  }
+  // set default options
+  if (isUndefined(ctx.showHidden)) ctx.showHidden = false;
+  if (isUndefined(ctx.depth)) ctx.depth = 2;
+  if (isUndefined(ctx.colors)) ctx.colors = false;
+  if (isUndefined(ctx.customInspect)) ctx.customInspect = true;
+  if (ctx.colors) ctx.stylize = stylizeWithColor;
+  return formatValue(ctx, obj, ctx.depth);
+}
+exports.inspect = inspect;
+
+
+// http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
+inspect.colors = {
+  'bold' : [1, 22],
+  'italic' : [3, 23],
+  'underline' : [4, 24],
+  'inverse' : [7, 27],
+  'white' : [37, 39],
+  'grey' : [90, 39],
+  'black' : [30, 39],
+  'blue' : [34, 39],
+  'cyan' : [36, 39],
+  'green' : [32, 39],
+  'magenta' : [35, 39],
+  'red' : [31, 39],
+  'yellow' : [33, 39]
+};
+
+// Don't use 'blue' not visible on cmd.exe
+inspect.styles = {
+  'special': 'cyan',
+  'number': 'yellow',
+  'boolean': 'yellow',
+  'undefined': 'grey',
+  'null': 'bold',
+  'string': 'green',
+  'date': 'magenta',
+  // "name": intentionally not styling
+  'regexp': 'red'
+};
+
+
+function stylizeWithColor(str, styleType) {
+  var style = inspect.styles[styleType];
+
+  if (style) {
+    return '\u001b[' + inspect.colors[style][0] + 'm' + str +
+           '\u001b[' + inspect.colors[style][1] + 'm';
+  } else {
+    return str;
+  }
+}
+
+
+function stylizeNoColor(str, styleType) {
+  return str;
+}
+
+
+function arrayToHash(array) {
+  var hash = {};
+
+  array.forEach(function(val, idx) {
+    hash[val] = true;
+  });
+
+  return hash;
+}
+
+
+function formatValue(ctx, value, recurseTimes) {
+  // Provide a hook for user-specified inspect functions.
+  // Check that value is an object with an inspect function on it
+  if (ctx.customInspect &&
+      value &&
+      isFunction(value.inspect) &&
+      // Filter out the util module, it's inspect function is special
+      value.inspect !== exports.inspect &&
+      // Also filter out any prototype objects using the circular check.
+      !(value.constructor && value.constructor.prototype === value)) {
+    var ret = value.inspect(recurseTimes, ctx);
+    if (!isString(ret)) {
+      ret = formatValue(ctx, ret, recurseTimes);
+    }
+    return ret;
+  }
+
+  // Primitive types cannot have properties
+  var primitive = formatPrimitive(ctx, value);
+  if (primitive) {
+    return primitive;
+  }
+
+  // Look up the keys of the object.
+  var keys = Object.keys(value);
+  var visibleKeys = arrayToHash(keys);
+
+  if (ctx.showHidden) {
+    keys = Object.getOwnPropertyNames(value);
+  }
+
+  // IE doesn't make error fields non-enumerable
+  // http://msdn.microsoft.com/en-us/library/ie/dww52sbt(v=vs.94).aspx
+  if (isError(value)
+      && (keys.indexOf('message') >= 0 || keys.indexOf('description') >= 0)) {
+    return formatError(value);
+  }
+
+  // Some type of object without properties can be shortcutted.
+  if (keys.length === 0) {
+    if (isFunction(value)) {
+      var name = value.name ? ': ' + value.name : '';
+      return ctx.stylize('[Function' + name + ']', 'special');
+    }
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    }
+    if (isDate(value)) {
+      return ctx.stylize(Date.prototype.toString.call(value), 'date');
+    }
+    if (isError(value)) {
+      return formatError(value);
+    }
+  }
+
+  var base = '', array = false, braces = ['{', '}'];
+
+  // Make Array say that they are Array
+  if (isArray(value)) {
+    array = true;
+    braces = ['[', ']'];
+  }
+
+  // Make functions say that they are functions
+  if (isFunction(value)) {
+    var n = value.name ? ': ' + value.name : '';
+    base = ' [Function' + n + ']';
+  }
+
+  // Make RegExps say that they are RegExps
+  if (isRegExp(value)) {
+    base = ' ' + RegExp.prototype.toString.call(value);
+  }
+
+  // Make dates with properties first say the date
+  if (isDate(value)) {
+    base = ' ' + Date.prototype.toUTCString.call(value);
+  }
+
+  // Make error with message first say the error
+  if (isError(value)) {
+    base = ' ' + formatError(value);
+  }
+
+  if (keys.length === 0 && (!array || value.length == 0)) {
+    return braces[0] + base + braces[1];
+  }
+
+  if (recurseTimes < 0) {
+    if (isRegExp(value)) {
+      return ctx.stylize(RegExp.prototype.toString.call(value), 'regexp');
+    } else {
+      return ctx.stylize('[Object]', 'special');
+    }
+  }
+
+  ctx.seen.push(value);
+
+  var output;
+  if (array) {
+    output = formatArray(ctx, value, recurseTimes, visibleKeys, keys);
+  } else {
+    output = keys.map(function(key) {
+      return formatProperty(ctx, value, recurseTimes, visibleKeys, key, array);
+    });
+  }
+
+  ctx.seen.pop();
+
+  return reduceToSingleString(output, base, braces);
+}
+
+
+function formatPrimitive(ctx, value) {
+  if (isUndefined(value))
+    return ctx.stylize('undefined', 'undefined');
+  if (isString(value)) {
+    var simple = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
+                                             .replace(/'/g, "\\'")
+                                             .replace(/\\"/g, '"') + '\'';
+    return ctx.stylize(simple, 'string');
+  }
+  if (isNumber(value))
+    return ctx.stylize('' + value, 'number');
+  if (isBoolean(value))
+    return ctx.stylize('' + value, 'boolean');
+  // For some reason typeof null is "object", so special case here.
+  if (isNull(value))
+    return ctx.stylize('null', 'null');
+}
+
+
+function formatError(value) {
+  return '[' + Error.prototype.toString.call(value) + ']';
+}
+
+
+function formatArray(ctx, value, recurseTimes, visibleKeys, keys) {
+  var output = [];
+  for (var i = 0, l = value.length; i < l; ++i) {
+    if (hasOwnProperty(value, String(i))) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          String(i), true));
+    } else {
+      output.push('');
+    }
+  }
+  keys.forEach(function(key) {
+    if (!key.match(/^\d+$/)) {
+      output.push(formatProperty(ctx, value, recurseTimes, visibleKeys,
+          key, true));
+    }
+  });
+  return output;
+}
+
+
+function formatProperty(ctx, value, recurseTimes, visibleKeys, key, array) {
+  var name, str, desc;
+  desc = Object.getOwnPropertyDescriptor(value, key) || { value: value[key] };
+  if (desc.get) {
+    if (desc.set) {
+      str = ctx.stylize('[Getter/Setter]', 'special');
+    } else {
+      str = ctx.stylize('[Getter]', 'special');
+    }
+  } else {
+    if (desc.set) {
+      str = ctx.stylize('[Setter]', 'special');
+    }
+  }
+  if (!hasOwnProperty(visibleKeys, key)) {
+    name = '[' + key + ']';
+  }
+  if (!str) {
+    if (ctx.seen.indexOf(desc.value) < 0) {
+      if (isNull(recurseTimes)) {
+        str = formatValue(ctx, desc.value, null);
+      } else {
+        str = formatValue(ctx, desc.value, recurseTimes - 1);
+      }
+      if (str.indexOf('\n') > -1) {
+        if (array) {
+          str = str.split('\n').map(function(line) {
+            return '  ' + line;
+          }).join('\n').substr(2);
+        } else {
+          str = '\n' + str.split('\n').map(function(line) {
+            return '   ' + line;
+          }).join('\n');
+        }
+      }
+    } else {
+      str = ctx.stylize('[Circular]', 'special');
+    }
+  }
+  if (isUndefined(name)) {
+    if (array && key.match(/^\d+$/)) {
+      return str;
+    }
+    name = JSON.stringify('' + key);
+    if (name.match(/^"([a-zA-Z_][a-zA-Z_0-9]*)"$/)) {
+      name = name.substr(1, name.length - 2);
+      name = ctx.stylize(name, 'name');
+    } else {
+      name = name.replace(/'/g, "\\'")
+                 .replace(/\\"/g, '"')
+                 .replace(/(^"|"$)/g, "'");
+      name = ctx.stylize(name, 'string');
+    }
+  }
+
+  return name + ': ' + str;
+}
+
+
+function reduceToSingleString(output, base, braces) {
+  var numLinesEst = 0;
+  var length = output.reduce(function(prev, cur) {
+    numLinesEst++;
+    if (cur.indexOf('\n') >= 0) numLinesEst++;
+    return prev + cur.replace(/\u001b\[\d\d?m/g, '').length + 1;
+  }, 0);
+
+  if (length > 60) {
+    return braces[0] +
+           (base === '' ? '' : base + '\n ') +
+           ' ' +
+           output.join(',\n  ') +
+           ' ' +
+           braces[1];
+  }
+
+  return braces[0] + base + ' ' + output.join(', ') + ' ' + braces[1];
+}
+
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+function isArray(ar) {
+  return Array.isArray(ar);
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return isObject(re) && objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return isObject(d) && objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return isObject(e) &&
+      (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+exports.isBuffer = require('./support/isBuffer');
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+
+
+function pad(n) {
+  return n < 10 ? '0' + n.toString(10) : n.toString(10);
+}
+
+
+var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
+              'Oct', 'Nov', 'Dec'];
+
+// 26 Feb 16:19:34
+function timestamp() {
+  var d = new Date();
+  var time = [pad(d.getHours()),
+              pad(d.getMinutes()),
+              pad(d.getSeconds())].join(':');
+  return [d.getDate(), months[d.getMonth()], time].join(' ');
+}
+
+
+// log is just a thin wrapper to console.log that prepends a timestamp
+exports.log = function() {
+  console.log('%s - %s', timestamp(), exports.format.apply(exports, arguments));
+};
+
+
+/**
+ * Inherit the prototype methods from one constructor into another.
+ *
+ * The Function.prototype.inherits from lang.js rewritten as a standalone
+ * function (not on Function.prototype). NOTE: If this file is to be loaded
+ * during bootstrapping this function needs to be rewritten using some native
+ * functions as prototype setup using normal JavaScript does not work as
+ * expected during bootstrapping (see mirror.js in r114903).
+ *
+ * @param {function} ctor Constructor function which needs to inherit the
+ *     prototype.
+ * @param {function} superCtor Constructor function to inherit prototype from.
+ */
+exports.inherits = require('inherits');
+
+exports._extend = function(origin, add) {
+  // Don't do anything if add isn't an object
+  if (!add || !isObject(add)) return origin;
+
+  var keys = Object.keys(add);
+  var i = keys.length;
+  while (i--) {
+    origin[keys[i]] = add[keys[i]];
+  }
+  return origin;
+};
+
+function hasOwnProperty(obj, prop) {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
+}
+
+}).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"./support/isBuffer":200,"_process":355,"inherits":199}],202:[function(require,module,exports){
+(function (global){(function (){
+'use strict';
+
+var possibleNames = [
+	'BigInt64Array',
+	'BigUint64Array',
+	'Float32Array',
+	'Float64Array',
+	'Int16Array',
+	'Int32Array',
+	'Int8Array',
+	'Uint16Array',
+	'Uint32Array',
+	'Uint8Array',
+	'Uint8ClampedArray'
+];
+
+var g = typeof globalThis === 'undefined' ? global : globalThis;
+
+module.exports = function availableTypedArrays() {
+	var out = [];
+	for (var i = 0; i < possibleNames.length; i++) {
+		if (typeof g[possibleNames[i]] === 'function') {
+			out[out.length] = possibleNames[i];
+		}
+	}
+	return out;
+};
+
+}).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],203:[function(require,module,exports){
 'use strict'
 
 exports.byteLength = byteLength
@@ -20740,7 +22488,7 @@ function fromByteArray (uint8) {
   return parts.join('')
 }
 
-},{}],193:[function(require,module,exports){
+},{}],204:[function(require,module,exports){
 (function (module, exports) {
   'use strict';
 
@@ -24289,7 +26037,7 @@ function fromByteArray (uint8) {
   };
 })(typeof module === 'undefined' || module, this);
 
-},{"buffer":195}],194:[function(require,module,exports){
+},{"buffer":206}],205:[function(require,module,exports){
 var r;
 
 module.exports = function rand(len) {
@@ -24356,9 +26104,9 @@ if (typeof self === 'object') {
   }
 }
 
-},{"crypto":195}],195:[function(require,module,exports){
+},{"crypto":206}],206:[function(require,module,exports){
 
-},{}],196:[function(require,module,exports){
+},{}],207:[function(require,module,exports){
 // based on the aes implimentation in triple sec
 // https://github.com/keybase/triplesec
 // which is in turn based on the one from crypto-js
@@ -24588,7 +26336,7 @@ AES.prototype.scrub = function () {
 
 module.exports.AES = AES
 
-},{"safe-buffer":362}],197:[function(require,module,exports){
+},{"safe-buffer":370}],208:[function(require,module,exports){
 var aes = require('./aes')
 var Buffer = require('safe-buffer').Buffer
 var Transform = require('cipher-base')
@@ -24707,7 +26455,7 @@ StreamCipher.prototype.setAAD = function setAAD (buf) {
 
 module.exports = StreamCipher
 
-},{"./aes":196,"./ghash":201,"./incr32":202,"buffer-xor":239,"cipher-base":241,"inherits":310,"safe-buffer":362}],198:[function(require,module,exports){
+},{"./aes":207,"./ghash":212,"./incr32":213,"buffer-xor":250,"cipher-base":254,"inherits":332,"safe-buffer":370}],209:[function(require,module,exports){
 var ciphers = require('./encrypter')
 var deciphers = require('./decrypter')
 var modes = require('./modes/list.json')
@@ -24722,7 +26470,7 @@ exports.createDecipher = exports.Decipher = deciphers.createDecipher
 exports.createDecipheriv = exports.Decipheriv = deciphers.createDecipheriv
 exports.listCiphers = exports.getCiphers = getCiphers
 
-},{"./decrypter":199,"./encrypter":200,"./modes/list.json":210}],199:[function(require,module,exports){
+},{"./decrypter":210,"./encrypter":211,"./modes/list.json":221}],210:[function(require,module,exports){
 var AuthCipher = require('./authCipher')
 var Buffer = require('safe-buffer').Buffer
 var MODES = require('./modes')
@@ -24848,7 +26596,7 @@ function createDecipher (suite, password) {
 exports.createDecipher = createDecipher
 exports.createDecipheriv = createDecipheriv
 
-},{"./aes":196,"./authCipher":197,"./modes":209,"./streamCipher":212,"cipher-base":241,"evp_bytestokey":279,"inherits":310,"safe-buffer":362}],200:[function(require,module,exports){
+},{"./aes":207,"./authCipher":208,"./modes":220,"./streamCipher":223,"cipher-base":254,"evp_bytestokey":293,"inherits":332,"safe-buffer":370}],211:[function(require,module,exports){
 var MODES = require('./modes')
 var AuthCipher = require('./authCipher')
 var Buffer = require('safe-buffer').Buffer
@@ -24964,7 +26712,7 @@ function createCipher (suite, password) {
 exports.createCipheriv = createCipheriv
 exports.createCipher = createCipher
 
-},{"./aes":196,"./authCipher":197,"./modes":209,"./streamCipher":212,"cipher-base":241,"evp_bytestokey":279,"inherits":310,"safe-buffer":362}],201:[function(require,module,exports){
+},{"./aes":207,"./authCipher":208,"./modes":220,"./streamCipher":223,"cipher-base":254,"evp_bytestokey":293,"inherits":332,"safe-buffer":370}],212:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 var ZEROES = Buffer.alloc(16, 0)
 
@@ -25055,7 +26803,7 @@ GHASH.prototype.final = function (abl, bl) {
 
 module.exports = GHASH
 
-},{"safe-buffer":362}],202:[function(require,module,exports){
+},{"safe-buffer":370}],213:[function(require,module,exports){
 function incr32 (iv) {
   var len = iv.length
   var item
@@ -25072,7 +26820,7 @@ function incr32 (iv) {
 }
 module.exports = incr32
 
-},{}],203:[function(require,module,exports){
+},{}],214:[function(require,module,exports){
 var xor = require('buffer-xor')
 
 exports.encrypt = function (self, block) {
@@ -25091,7 +26839,7 @@ exports.decrypt = function (self, block) {
   return xor(out, pad)
 }
 
-},{"buffer-xor":239}],204:[function(require,module,exports){
+},{"buffer-xor":250}],215:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 var xor = require('buffer-xor')
 
@@ -25126,7 +26874,7 @@ exports.encrypt = function (self, data, decrypt) {
   return out
 }
 
-},{"buffer-xor":239,"safe-buffer":362}],205:[function(require,module,exports){
+},{"buffer-xor":250,"safe-buffer":370}],216:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 
 function encryptByte (self, byteParam, decrypt) {
@@ -25170,7 +26918,7 @@ exports.encrypt = function (self, chunk, decrypt) {
   return out
 }
 
-},{"safe-buffer":362}],206:[function(require,module,exports){
+},{"safe-buffer":370}],217:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 
 function encryptByte (self, byteParam, decrypt) {
@@ -25197,7 +26945,7 @@ exports.encrypt = function (self, chunk, decrypt) {
   return out
 }
 
-},{"safe-buffer":362}],207:[function(require,module,exports){
+},{"safe-buffer":370}],218:[function(require,module,exports){
 var xor = require('buffer-xor')
 var Buffer = require('safe-buffer').Buffer
 var incr32 = require('../incr32')
@@ -25229,7 +26977,7 @@ exports.encrypt = function (self, chunk) {
   return xor(chunk, pad)
 }
 
-},{"../incr32":202,"buffer-xor":239,"safe-buffer":362}],208:[function(require,module,exports){
+},{"../incr32":213,"buffer-xor":250,"safe-buffer":370}],219:[function(require,module,exports){
 exports.encrypt = function (self, block) {
   return self._cipher.encryptBlock(block)
 }
@@ -25238,7 +26986,7 @@ exports.decrypt = function (self, block) {
   return self._cipher.decryptBlock(block)
 }
 
-},{}],209:[function(require,module,exports){
+},{}],220:[function(require,module,exports){
 var modeModules = {
   ECB: require('./ecb'),
   CBC: require('./cbc'),
@@ -25258,7 +27006,7 @@ for (var key in modes) {
 
 module.exports = modes
 
-},{"./cbc":203,"./cfb":204,"./cfb1":205,"./cfb8":206,"./ctr":207,"./ecb":208,"./list.json":210,"./ofb":211}],210:[function(require,module,exports){
+},{"./cbc":214,"./cfb":215,"./cfb1":216,"./cfb8":217,"./ctr":218,"./ecb":219,"./list.json":221,"./ofb":222}],221:[function(require,module,exports){
 module.exports={
   "aes-128-ecb": {
     "cipher": "AES",
@@ -25451,7 +27199,7 @@ module.exports={
   }
 }
 
-},{}],211:[function(require,module,exports){
+},{}],222:[function(require,module,exports){
 (function (Buffer){(function (){
 var xor = require('buffer-xor')
 
@@ -25471,7 +27219,7 @@ exports.encrypt = function (self, chunk) {
 }
 
 }).call(this)}).call(this,require("buffer").Buffer)
-},{"buffer":240,"buffer-xor":239}],212:[function(require,module,exports){
+},{"buffer":251,"buffer-xor":250}],223:[function(require,module,exports){
 var aes = require('./aes')
 var Buffer = require('safe-buffer').Buffer
 var Transform = require('cipher-base')
@@ -25500,7 +27248,7 @@ StreamCipher.prototype._final = function () {
 
 module.exports = StreamCipher
 
-},{"./aes":196,"cipher-base":241,"inherits":310,"safe-buffer":362}],213:[function(require,module,exports){
+},{"./aes":207,"cipher-base":254,"inherits":332,"safe-buffer":370}],224:[function(require,module,exports){
 var DES = require('browserify-des')
 var aes = require('browserify-aes/browser')
 var aesModes = require('browserify-aes/modes')
@@ -25569,7 +27317,7 @@ exports.createDecipher = exports.Decipher = createDecipher
 exports.createDecipheriv = exports.Decipheriv = createDecipheriv
 exports.listCiphers = exports.getCiphers = getCiphers
 
-},{"browserify-aes/browser":198,"browserify-aes/modes":209,"browserify-des":214,"browserify-des/modes":215,"evp_bytestokey":279}],214:[function(require,module,exports){
+},{"browserify-aes/browser":209,"browserify-aes/modes":220,"browserify-des":225,"browserify-des/modes":226,"evp_bytestokey":293}],225:[function(require,module,exports){
 var CipherBase = require('cipher-base')
 var des = require('des.js')
 var inherits = require('inherits')
@@ -25621,7 +27369,7 @@ DES.prototype._final = function () {
   return Buffer.from(this._des.final())
 }
 
-},{"cipher-base":241,"des.js":250,"inherits":310,"safe-buffer":362}],215:[function(require,module,exports){
+},{"cipher-base":254,"des.js":263,"inherits":332,"safe-buffer":370}],226:[function(require,module,exports){
 exports['des-ecb'] = {
   key: 8,
   iv: 0
@@ -25647,7 +27395,7 @@ exports['des-ede'] = {
   iv: 0
 }
 
-},{}],216:[function(require,module,exports){
+},{}],227:[function(require,module,exports){
 (function (Buffer){(function (){
 var BN = require('bn.js')
 var randomBytes = require('randombytes')
@@ -25686,10 +27434,10 @@ crt.getr = getr
 module.exports = crt
 
 }).call(this)}).call(this,require("buffer").Buffer)
-},{"bn.js":193,"buffer":240,"randombytes":344}],217:[function(require,module,exports){
+},{"bn.js":204,"buffer":251,"randombytes":367}],228:[function(require,module,exports){
 module.exports = require('./browser/algorithms.json')
 
-},{"./browser/algorithms.json":218}],218:[function(require,module,exports){
+},{"./browser/algorithms.json":229}],229:[function(require,module,exports){
 module.exports={
   "sha224WithRSAEncryption": {
     "sign": "rsa",
@@ -25843,7 +27591,7 @@ module.exports={
   }
 }
 
-},{}],219:[function(require,module,exports){
+},{}],230:[function(require,module,exports){
 module.exports={
   "1.3.132.0.10": "secp256k1",
   "1.3.132.0.33": "p224",
@@ -25853,7 +27601,7 @@ module.exports={
   "1.3.132.0.35": "p521"
 }
 
-},{}],220:[function(require,module,exports){
+},{}],231:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 var createHash = require('create-hash')
 var stream = require('readable-stream')
@@ -25947,7 +27695,7 @@ module.exports = {
   createVerify: createVerify
 }
 
-},{"./algorithms.json":218,"./sign":221,"./verify":222,"create-hash":245,"inherits":310,"readable-stream":237,"safe-buffer":362}],221:[function(require,module,exports){
+},{"./algorithms.json":229,"./sign":232,"./verify":233,"create-hash":258,"inherits":332,"readable-stream":248,"safe-buffer":370}],232:[function(require,module,exports){
 // much of this based on https://github.com/indutny/self-signed/blob/gh-pages/lib/rsa.js
 var Buffer = require('safe-buffer').Buffer
 var createHmac = require('create-hmac')
@@ -26092,7 +27840,7 @@ module.exports = sign
 module.exports.getKey = getKey
 module.exports.makeKey = makeKey
 
-},{"./curves.json":219,"bn.js":193,"browserify-rsa":216,"create-hmac":247,"elliptic":261,"parse-asn1":323,"safe-buffer":362}],222:[function(require,module,exports){
+},{"./curves.json":230,"bn.js":204,"browserify-rsa":227,"create-hmac":260,"elliptic":274,"parse-asn1":347,"safe-buffer":370}],233:[function(require,module,exports){
 // much of this based on https://github.com/indutny/self-signed/blob/gh-pages/lib/rsa.js
 var Buffer = require('safe-buffer').Buffer
 var BN = require('bn.js')
@@ -26178,7 +27926,7 @@ function checkValue (b, q) {
 
 module.exports = verify
 
-},{"./curves.json":219,"bn.js":193,"elliptic":261,"parse-asn1":323,"safe-buffer":362}],223:[function(require,module,exports){
+},{"./curves.json":230,"bn.js":204,"elliptic":274,"parse-asn1":347,"safe-buffer":370}],234:[function(require,module,exports){
 'use strict';
 
 function _inheritsLoose(subClass, superClass) { subClass.prototype = Object.create(superClass.prototype); subClass.prototype.constructor = subClass; subClass.__proto__ = superClass; }
@@ -26307,7 +28055,7 @@ createErrorType('ERR_UNKNOWN_ENCODING', function (arg) {
 createErrorType('ERR_STREAM_UNSHIFT_AFTER_END_EVENT', 'stream.unshift() after end event');
 module.exports.codes = codes;
 
-},{}],224:[function(require,module,exports){
+},{}],235:[function(require,module,exports){
 (function (process){(function (){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -26449,7 +28197,7 @@ Object.defineProperty(Duplex.prototype, 'destroyed', {
   }
 });
 }).call(this)}).call(this,require('_process'))
-},{"./_stream_readable":226,"./_stream_writable":228,"_process":332,"inherits":310}],225:[function(require,module,exports){
+},{"./_stream_readable":237,"./_stream_writable":239,"_process":355,"inherits":332}],236:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -26489,7 +28237,7 @@ function PassThrough(options) {
 PassThrough.prototype._transform = function (chunk, encoding, cb) {
   cb(null, chunk);
 };
-},{"./_stream_transform":227,"inherits":310}],226:[function(require,module,exports){
+},{"./_stream_transform":238,"inherits":332}],237:[function(require,module,exports){
 (function (process,global){(function (){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -27616,7 +29364,7 @@ function indexOf(xs, x) {
   return -1;
 }
 }).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../errors":223,"./_stream_duplex":224,"./internal/streams/async_iterator":229,"./internal/streams/buffer_list":230,"./internal/streams/destroy":231,"./internal/streams/from":233,"./internal/streams/state":235,"./internal/streams/stream":236,"_process":332,"buffer":240,"events":278,"inherits":310,"string_decoder/":373,"util":195}],227:[function(require,module,exports){
+},{"../errors":234,"./_stream_duplex":235,"./internal/streams/async_iterator":240,"./internal/streams/buffer_list":241,"./internal/streams/destroy":242,"./internal/streams/from":244,"./internal/streams/state":246,"./internal/streams/stream":247,"_process":355,"buffer":251,"events":292,"inherits":332,"string_decoder/":395,"util":206}],238:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -27818,7 +29566,7 @@ function done(stream, er, data) {
   if (stream._transformState.transforming) throw new ERR_TRANSFORM_ALREADY_TRANSFORMING();
   return stream.push(null);
 }
-},{"../errors":223,"./_stream_duplex":224,"inherits":310}],228:[function(require,module,exports){
+},{"../errors":234,"./_stream_duplex":235,"inherits":332}],239:[function(require,module,exports){
 (function (process,global){(function (){
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -28518,7 +30266,7 @@ Writable.prototype._destroy = function (err, cb) {
   cb(err);
 };
 }).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"../errors":223,"./_stream_duplex":224,"./internal/streams/destroy":231,"./internal/streams/state":235,"./internal/streams/stream":236,"_process":332,"buffer":240,"inherits":310,"util-deprecate":377}],229:[function(require,module,exports){
+},{"../errors":234,"./_stream_duplex":235,"./internal/streams/destroy":242,"./internal/streams/state":246,"./internal/streams/stream":247,"_process":355,"buffer":251,"inherits":332,"util-deprecate":399}],240:[function(require,module,exports){
 (function (process){(function (){
 'use strict';
 
@@ -28728,7 +30476,7 @@ var createReadableStreamAsyncIterator = function createReadableStreamAsyncIterat
 
 module.exports = createReadableStreamAsyncIterator;
 }).call(this)}).call(this,require('_process'))
-},{"./end-of-stream":232,"_process":332}],230:[function(require,module,exports){
+},{"./end-of-stream":243,"_process":355}],241:[function(require,module,exports){
 'use strict';
 
 function ownKeys(object, enumerableOnly) { var keys = Object.keys(object); if (Object.getOwnPropertySymbols) { var symbols = Object.getOwnPropertySymbols(object); if (enumerableOnly) symbols = symbols.filter(function (sym) { return Object.getOwnPropertyDescriptor(object, sym).enumerable; }); keys.push.apply(keys, symbols); } return keys; }
@@ -28939,7 +30687,7 @@ function () {
 
   return BufferList;
 }();
-},{"buffer":240,"util":195}],231:[function(require,module,exports){
+},{"buffer":251,"util":206}],242:[function(require,module,exports){
 (function (process){(function (){
 'use strict'; // undocumented cb() API, needed for core, not for public API
 
@@ -29047,7 +30795,7 @@ module.exports = {
   errorOrDestroy: errorOrDestroy
 };
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],232:[function(require,module,exports){
+},{"_process":355}],243:[function(require,module,exports){
 // Ported from https://github.com/mafintosh/end-of-stream with
 // permission from the author, Mathias Buus (@mafintosh).
 'use strict';
@@ -29152,12 +30900,12 @@ function eos(stream, opts, callback) {
 }
 
 module.exports = eos;
-},{"../../../errors":223}],233:[function(require,module,exports){
+},{"../../../errors":234}],244:[function(require,module,exports){
 module.exports = function () {
   throw new Error('Readable.from is not available in the browser')
 };
 
-},{}],234:[function(require,module,exports){
+},{}],245:[function(require,module,exports){
 // Ported from https://github.com/mafintosh/pump with
 // permission from the author, Mathias Buus (@mafintosh).
 'use strict';
@@ -29255,7 +31003,7 @@ function pipeline() {
 }
 
 module.exports = pipeline;
-},{"../../../errors":223,"./end-of-stream":232}],235:[function(require,module,exports){
+},{"../../../errors":234,"./end-of-stream":243}],246:[function(require,module,exports){
 'use strict';
 
 var ERR_INVALID_OPT_VALUE = require('../../../errors').codes.ERR_INVALID_OPT_VALUE;
@@ -29283,10 +31031,10 @@ function getHighWaterMark(state, options, duplexKey, isDuplex) {
 module.exports = {
   getHighWaterMark: getHighWaterMark
 };
-},{"../../../errors":223}],236:[function(require,module,exports){
+},{"../../../errors":234}],247:[function(require,module,exports){
 module.exports = require('events').EventEmitter;
 
-},{"events":278}],237:[function(require,module,exports){
+},{"events":292}],248:[function(require,module,exports){
 exports = module.exports = require('./lib/_stream_readable.js');
 exports.Stream = exports;
 exports.Readable = exports;
@@ -29297,9 +31045,9 @@ exports.PassThrough = require('./lib/_stream_passthrough.js');
 exports.finished = require('./lib/internal/streams/end-of-stream.js');
 exports.pipeline = require('./lib/internal/streams/pipeline.js');
 
-},{"./lib/_stream_duplex.js":224,"./lib/_stream_passthrough.js":225,"./lib/_stream_readable.js":226,"./lib/_stream_transform.js":227,"./lib/_stream_writable.js":228,"./lib/internal/streams/end-of-stream.js":232,"./lib/internal/streams/pipeline.js":234}],238:[function(require,module,exports){
-arguments[4][195][0].apply(exports,arguments)
-},{"dup":195}],239:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":235,"./lib/_stream_passthrough.js":236,"./lib/_stream_readable.js":237,"./lib/_stream_transform.js":238,"./lib/_stream_writable.js":239,"./lib/internal/streams/end-of-stream.js":243,"./lib/internal/streams/pipeline.js":245}],249:[function(require,module,exports){
+arguments[4][206][0].apply(exports,arguments)
+},{"dup":206}],250:[function(require,module,exports){
 (function (Buffer){(function (){
 module.exports = function xor (a, b) {
   var length = Math.min(a.length, b.length)
@@ -29313,7 +31061,7 @@ module.exports = function xor (a, b) {
 }
 
 }).call(this)}).call(this,require("buffer").Buffer)
-},{"buffer":240}],240:[function(require,module,exports){
+},{"buffer":251}],251:[function(require,module,exports){
 (function (Buffer){(function (){
 /*!
  * The buffer module from node.js, for the browser.
@@ -31094,7 +32842,73 @@ function numberIsNaN (obj) {
 }
 
 }).call(this)}).call(this,require("buffer").Buffer)
-},{"base64-js":192,"buffer":240,"ieee754":309}],241:[function(require,module,exports){
+},{"base64-js":203,"buffer":251,"ieee754":331}],252:[function(require,module,exports){
+'use strict';
+
+var GetIntrinsic = require('get-intrinsic');
+
+var callBind = require('./');
+
+var $indexOf = callBind(GetIntrinsic('String.prototype.indexOf'));
+
+module.exports = function callBoundIntrinsic(name, allowMissing) {
+	var intrinsic = GetIntrinsic(name, !!allowMissing);
+	if (typeof intrinsic === 'function' && $indexOf(name, '.prototype.') > -1) {
+		return callBind(intrinsic);
+	}
+	return intrinsic;
+};
+
+},{"./":253,"get-intrinsic":297}],253:[function(require,module,exports){
+'use strict';
+
+var bind = require('function-bind');
+var GetIntrinsic = require('get-intrinsic');
+
+var $apply = GetIntrinsic('%Function.prototype.apply%');
+var $call = GetIntrinsic('%Function.prototype.call%');
+var $reflectApply = GetIntrinsic('%Reflect.apply%', true) || bind.call($call, $apply);
+
+var $gOPD = GetIntrinsic('%Object.getOwnPropertyDescriptor%', true);
+var $defineProperty = GetIntrinsic('%Object.defineProperty%', true);
+var $max = GetIntrinsic('%Math.max%');
+
+if ($defineProperty) {
+	try {
+		$defineProperty({}, 'a', { value: 1 });
+	} catch (e) {
+		// IE 8 has a broken defineProperty
+		$defineProperty = null;
+	}
+}
+
+module.exports = function callBind(originalFunction) {
+	var func = $reflectApply(bind, $call, arguments);
+	if ($gOPD && $defineProperty) {
+		var desc = $gOPD(func, 'length');
+		if (desc.configurable) {
+			// original length, plus the receiver, minus any additional arguments (after the receiver)
+			$defineProperty(
+				func,
+				'length',
+				{ value: 1 + $max(0, originalFunction.length - (arguments.length - 1)) }
+			);
+		}
+	}
+	return func;
+};
+
+var applyBind = function applyBind() {
+	return $reflectApply(bind, $apply, arguments);
+};
+
+if ($defineProperty) {
+	$defineProperty(module.exports, 'apply', { value: applyBind });
+} else {
+	module.exports.apply = applyBind;
+}
+
+},{"function-bind":296,"get-intrinsic":297}],254:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 var Transform = require('stream').Transform
 var StringDecoder = require('string_decoder').StringDecoder
@@ -31195,118 +33009,98 @@ CipherBase.prototype._toString = function (value, enc, fin) {
 
 module.exports = CipherBase
 
-},{"inherits":310,"safe-buffer":362,"stream":372,"string_decoder":373}],242:[function(require,module,exports){
-(function (Buffer){(function (){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
+},{"inherits":332,"safe-buffer":370,"stream":380,"string_decoder":395}],255:[function(require,module,exports){
+(function (global){(function (){
+/*global window, global*/
+var util = require("util")
+var assert = require("assert")
+function now() { return new Date().getTime() }
 
-// NOTE: These type checking functions intentionally don't use `instanceof`
-// because it is fragile and can be easily faked with `Object.create()`.
+var slice = Array.prototype.slice
+var console
+var times = {}
 
-function isArray(arg) {
-  if (Array.isArray) {
-    return Array.isArray(arg);
-  }
-  return objectToString(arg) === '[object Array]';
-}
-exports.isArray = isArray;
-
-function isBoolean(arg) {
-  return typeof arg === 'boolean';
-}
-exports.isBoolean = isBoolean;
-
-function isNull(arg) {
-  return arg === null;
-}
-exports.isNull = isNull;
-
-function isNullOrUndefined(arg) {
-  return arg == null;
-}
-exports.isNullOrUndefined = isNullOrUndefined;
-
-function isNumber(arg) {
-  return typeof arg === 'number';
-}
-exports.isNumber = isNumber;
-
-function isString(arg) {
-  return typeof arg === 'string';
-}
-exports.isString = isString;
-
-function isSymbol(arg) {
-  return typeof arg === 'symbol';
-}
-exports.isSymbol = isSymbol;
-
-function isUndefined(arg) {
-  return arg === void 0;
-}
-exports.isUndefined = isUndefined;
-
-function isRegExp(re) {
-  return objectToString(re) === '[object RegExp]';
-}
-exports.isRegExp = isRegExp;
-
-function isObject(arg) {
-  return typeof arg === 'object' && arg !== null;
-}
-exports.isObject = isObject;
-
-function isDate(d) {
-  return objectToString(d) === '[object Date]';
-}
-exports.isDate = isDate;
-
-function isError(e) {
-  return (objectToString(e) === '[object Error]' || e instanceof Error);
-}
-exports.isError = isError;
-
-function isFunction(arg) {
-  return typeof arg === 'function';
-}
-exports.isFunction = isFunction;
-
-function isPrimitive(arg) {
-  return arg === null ||
-         typeof arg === 'boolean' ||
-         typeof arg === 'number' ||
-         typeof arg === 'string' ||
-         typeof arg === 'symbol' ||  // ES6 symbol
-         typeof arg === 'undefined';
-}
-exports.isPrimitive = isPrimitive;
-
-exports.isBuffer = Buffer.isBuffer;
-
-function objectToString(o) {
-  return Object.prototype.toString.call(o);
+if (typeof global !== "undefined" && global.console) {
+    console = global.console
+} else if (typeof window !== "undefined" && window.console) {
+    console = window.console
+} else {
+    console = {}
 }
 
-}).call(this)}).call(this,{"isBuffer":require("../../is-buffer/index.js")})
-},{"../../is-buffer/index.js":311}],243:[function(require,module,exports){
+var functions = [
+    [log, "log"],
+    [info, "info"],
+    [warn, "warn"],
+    [error, "error"],
+    [time, "time"],
+    [timeEnd, "timeEnd"],
+    [trace, "trace"],
+    [dir, "dir"],
+    [consoleAssert, "assert"]
+]
+
+for (var i = 0; i < functions.length; i++) {
+    var tuple = functions[i]
+    var f = tuple[0]
+    var name = tuple[1]
+
+    if (!console[name]) {
+        console[name] = f
+    }
+}
+
+module.exports = console
+
+function log() {}
+
+function info() {
+    console.log.apply(console, arguments)
+}
+
+function warn() {
+    console.log.apply(console, arguments)
+}
+
+function error() {
+    console.warn.apply(console, arguments)
+}
+
+function time(label) {
+    times[label] = now()
+}
+
+function timeEnd(label) {
+    var time = times[label]
+    if (!time) {
+        throw new Error("No such label: " + label)
+    }
+
+    delete times[label]
+    var duration = now() - time
+    console.log(label + ": " + duration + "ms")
+}
+
+function trace() {
+    var err = new Error()
+    err.name = "Trace"
+    err.message = util.format.apply(null, arguments)
+    console.error(err.stack)
+}
+
+function dir(object) {
+    console.log(util.inspect(object) + "\n")
+}
+
+function consoleAssert(expression) {
+    if (!expression) {
+        var arr = slice.call(arguments, 1)
+        assert.ok(false, util.format.apply(null, arr))
+    }
+}
+
+}).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"assert":198,"util":402}],256:[function(require,module,exports){
 (function (Buffer){(function (){
 var elliptic = require('elliptic')
 var BN = require('bn.js')
@@ -31434,9 +33228,9 @@ function formatReturnValue (bn, enc, len) {
 }
 
 }).call(this)}).call(this,require("buffer").Buffer)
-},{"bn.js":244,"buffer":240,"elliptic":261}],244:[function(require,module,exports){
-arguments[4][191][0].apply(exports,arguments)
-},{"buffer":195,"dup":191}],245:[function(require,module,exports){
+},{"bn.js":257,"buffer":251,"elliptic":274}],257:[function(require,module,exports){
+arguments[4][197][0].apply(exports,arguments)
+},{"buffer":206,"dup":197}],258:[function(require,module,exports){
 'use strict'
 var inherits = require('inherits')
 var MD5 = require('md5.js')
@@ -31468,14 +33262,14 @@ module.exports = function createHash (alg) {
   return new Hash(sha(alg))
 }
 
-},{"cipher-base":241,"inherits":310,"md5.js":313,"ripemd160":361,"sha.js":365}],246:[function(require,module,exports){
+},{"cipher-base":254,"inherits":332,"md5.js":336,"ripemd160":369,"sha.js":373}],259:[function(require,module,exports){
 var MD5 = require('md5.js')
 
 module.exports = function (buffer) {
   return new MD5().update(buffer).digest()
 }
 
-},{"md5.js":313}],247:[function(require,module,exports){
+},{"md5.js":336}],260:[function(require,module,exports){
 'use strict'
 var inherits = require('inherits')
 var Legacy = require('./legacy')
@@ -31539,7 +33333,7 @@ module.exports = function createHmac (alg, key) {
   return new Hmac(alg, key)
 }
 
-},{"./legacy":248,"cipher-base":241,"create-hash/md5":246,"inherits":310,"ripemd160":361,"safe-buffer":362,"sha.js":365}],248:[function(require,module,exports){
+},{"./legacy":261,"cipher-base":254,"create-hash/md5":259,"inherits":332,"ripemd160":369,"safe-buffer":370,"sha.js":373}],261:[function(require,module,exports){
 'use strict'
 var inherits = require('inherits')
 var Buffer = require('safe-buffer').Buffer
@@ -31587,7 +33381,7 @@ Hmac.prototype._final = function () {
 }
 module.exports = Hmac
 
-},{"cipher-base":241,"inherits":310,"safe-buffer":362}],249:[function(require,module,exports){
+},{"cipher-base":254,"inherits":332,"safe-buffer":370}],262:[function(require,module,exports){
 'use strict'
 
 exports.randomBytes = exports.rng = exports.pseudoRandomBytes = exports.prng = require('randombytes')
@@ -31686,7 +33480,7 @@ exports.constants = {
   'POINT_CONVERSION_HYBRID': 6
 }
 
-},{"browserify-cipher":213,"browserify-sign":220,"browserify-sign/algos":217,"create-ecdh":243,"create-hash":245,"create-hmac":247,"diffie-hellman":256,"pbkdf2":325,"public-encrypt":333,"randombytes":344,"randomfill":345}],250:[function(require,module,exports){
+},{"browserify-cipher":224,"browserify-sign":231,"browserify-sign/algos":228,"create-ecdh":256,"create-hash":258,"create-hmac":260,"diffie-hellman":269,"pbkdf2":349,"public-encrypt":356,"randombytes":367,"randomfill":368}],263:[function(require,module,exports){
 'use strict';
 
 exports.utils = require('./des/utils');
@@ -31695,7 +33489,7 @@ exports.DES = require('./des/des');
 exports.CBC = require('./des/cbc');
 exports.EDE = require('./des/ede');
 
-},{"./des/cbc":251,"./des/cipher":252,"./des/des":253,"./des/ede":254,"./des/utils":255}],251:[function(require,module,exports){
+},{"./des/cbc":264,"./des/cipher":265,"./des/des":266,"./des/ede":267,"./des/utils":268}],264:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -31762,7 +33556,7 @@ proto._update = function _update(inp, inOff, out, outOff) {
   }
 };
 
-},{"inherits":310,"minimalistic-assert":316}],252:[function(require,module,exports){
+},{"inherits":332,"minimalistic-assert":339}],265:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -31905,7 +33699,7 @@ Cipher.prototype._finalDecrypt = function _finalDecrypt() {
   return this._unpad(out);
 };
 
-},{"minimalistic-assert":316}],253:[function(require,module,exports){
+},{"minimalistic-assert":339}],266:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -32049,7 +33843,7 @@ DES.prototype._decrypt = function _decrypt(state, lStart, rStart, out, off) {
   utils.rip(l, r, out, off);
 };
 
-},{"./cipher":252,"./utils":255,"inherits":310,"minimalistic-assert":316}],254:[function(require,module,exports){
+},{"./cipher":265,"./utils":268,"inherits":332,"minimalistic-assert":339}],267:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -32105,7 +33899,7 @@ EDE.prototype._update = function _update(inp, inOff, out, outOff) {
 EDE.prototype._pad = DES.prototype._pad;
 EDE.prototype._unpad = DES.prototype._unpad;
 
-},{"./cipher":252,"./des":253,"inherits":310,"minimalistic-assert":316}],255:[function(require,module,exports){
+},{"./cipher":265,"./des":266,"inherits":332,"minimalistic-assert":339}],268:[function(require,module,exports){
 'use strict';
 
 exports.readUInt32BE = function readUInt32BE(bytes, off) {
@@ -32363,7 +34157,7 @@ exports.padSplit = function padSplit(num, size, group) {
   return out.join(' ');
 };
 
-},{}],256:[function(require,module,exports){
+},{}],269:[function(require,module,exports){
 (function (Buffer){(function (){
 var generatePrime = require('./lib/generatePrime')
 var primes = require('./lib/primes.json')
@@ -32409,7 +34203,7 @@ exports.DiffieHellmanGroup = exports.createDiffieHellmanGroup = exports.getDiffi
 exports.createDiffieHellman = exports.DiffieHellman = createDiffieHellman
 
 }).call(this)}).call(this,require("buffer").Buffer)
-},{"./lib/dh":257,"./lib/generatePrime":258,"./lib/primes.json":259,"buffer":240}],257:[function(require,module,exports){
+},{"./lib/dh":270,"./lib/generatePrime":271,"./lib/primes.json":272,"buffer":251}],270:[function(require,module,exports){
 (function (Buffer){(function (){
 var BN = require('bn.js');
 var MillerRabin = require('miller-rabin');
@@ -32577,7 +34371,7 @@ function formatReturnValue(bn, enc) {
 }
 
 }).call(this)}).call(this,require("buffer").Buffer)
-},{"./generatePrime":258,"bn.js":260,"buffer":240,"miller-rabin":314,"randombytes":344}],258:[function(require,module,exports){
+},{"./generatePrime":271,"bn.js":273,"buffer":251,"miller-rabin":337,"randombytes":367}],271:[function(require,module,exports){
 var randomBytes = require('randombytes');
 module.exports = findPrime;
 findPrime.simpleSieve = simpleSieve;
@@ -32684,7 +34478,7 @@ function findPrime(bits, gen) {
 
 }
 
-},{"bn.js":260,"miller-rabin":314,"randombytes":344}],259:[function(require,module,exports){
+},{"bn.js":273,"miller-rabin":337,"randombytes":367}],272:[function(require,module,exports){
 module.exports={
     "modp1": {
         "gen": "02",
@@ -32719,9 +34513,9 @@ module.exports={
         "prime": "ffffffffffffffffc90fdaa22168c234c4c6628b80dc1cd129024e088a67cc74020bbea63b139b22514a08798e3404ddef9519b3cd3a431b302b0a6df25f14374fe1356d6d51c245e485b576625e7ec6f44c42e9a637ed6b0bff5cb6f406b7edee386bfb5a899fa5ae9f24117c4b1fe649286651ece45b3dc2007cb8a163bf0598da48361c55d39a69163fa8fd24cf5f83655d23dca3ad961c62f356208552bb9ed529077096966d670c354e4abc9804f1746c08ca18217c32905e462e36ce3be39e772c180e86039b2783a2ec07a28fb5c55df06f4c52c9de2bcbf6955817183995497cea956ae515d2261898fa051015728e5a8aaac42dad33170d04507a33a85521abdf1cba64ecfb850458dbef0a8aea71575d060c7db3970f85a6e1e4c7abf5ae8cdb0933d71e8c94e04a25619dcee3d2261ad2ee6bf12ffa06d98a0864d87602733ec86a64521f2b18177b200cbbe117577a615d6c770988c0bad946e208e24fa074e5ab3143db5bfce0fd108e4b82d120a92108011a723c12a787e6d788719a10bdba5b2699c327186af4e23c1a946834b6150bda2583e9ca2ad44ce8dbbbc2db04de8ef92e8efc141fbecaa6287c59474e6bc05d99b2964fa090c3a2233ba186515be7ed1f612970cee2d7afb81bdd762170481cd0069127d5b05aa993b4ea988d8fddc186ffb7dc90a6c08f4df435c93402849236c3fab4d27c7026c1d4dcb2602646dec9751e763dba37bdf8ff9406ad9e530ee5db382f413001aeb06a53ed9027d831179727b0865a8918da3edbebcf9b14ed44ce6cbaced4bb1bdb7f1447e6cc254b332051512bd7af426fb8f401378cd2bf5983ca01c64b92ecf032ea15d1721d03f482d7ce6e74fef6d55e702f46980c82b5a84031900b1c9e59e7c97fbec7e8f323a97a7e36cc88be0f1d45b7ff585ac54bd407b22b4154aacc8f6d7ebf48e1d814cc5ed20f8037e0a79715eef29be32806a1d58bb7c5da76f550aa3d8a1fbff0eb19ccb1a313d55cda56c9ec2ef29632387fe8d76e3c0468043e8f663f4860ee12bf2d5b0b7474d6e694f91e6dbe115974a3926f12fee5e438777cb6a932df8cd8bec4d073b931ba3bc832b68d9dd300741fa7bf8afc47ed2576f6936ba424663aab639c5ae4f5683423b4742bf1c978238f16cbe39d652de3fdb8befc848ad922222e04a4037c0713eb57a81a23f0c73473fc646cea306b4bcbc8862f8385ddfa9d4b7fa2c087e879683303ed5bdd3a062b3cf5b3a278a66d2a13f83f44f82ddf310ee074ab6a364597e899a0255dc164f31cc50846851df9ab48195ded7ea1b1d510bd7ee74d73faf36bc31ecfa268359046f4eb879f924009438b481c6cd7889a002ed5ee382bc9190da6fc026e479558e4475677e9aa9e3050e2765694dfc81f56e880b96e7160c980dd98edd3dfffffffffffffffff"
     }
 }
-},{}],260:[function(require,module,exports){
-arguments[4][191][0].apply(exports,arguments)
-},{"buffer":195,"dup":191}],261:[function(require,module,exports){
+},{}],273:[function(require,module,exports){
+arguments[4][197][0].apply(exports,arguments)
+},{"buffer":206,"dup":197}],274:[function(require,module,exports){
 'use strict';
 
 var elliptic = exports;
@@ -32736,7 +34530,7 @@ elliptic.curves = require('./elliptic/curves');
 elliptic.ec = require('./elliptic/ec');
 elliptic.eddsa = require('./elliptic/eddsa');
 
-},{"../package.json":277,"./elliptic/curve":264,"./elliptic/curves":267,"./elliptic/ec":268,"./elliptic/eddsa":271,"./elliptic/utils":275,"brorand":194}],262:[function(require,module,exports){
+},{"../package.json":290,"./elliptic/curve":277,"./elliptic/curves":280,"./elliptic/ec":281,"./elliptic/eddsa":284,"./elliptic/utils":288,"brorand":205}],275:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -33119,7 +34913,7 @@ BasePoint.prototype.dblp = function dblp(k) {
   return r;
 };
 
-},{"../utils":275,"bn.js":276}],263:[function(require,module,exports){
+},{"../utils":288,"bn.js":289}],276:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -33556,7 +35350,7 @@ Point.prototype.eqXToP = function eqXToP(x) {
 Point.prototype.toP = Point.prototype.normalize;
 Point.prototype.mixedAdd = Point.prototype.add;
 
-},{"../utils":275,"./base":262,"bn.js":276,"inherits":310}],264:[function(require,module,exports){
+},{"../utils":288,"./base":275,"bn.js":289,"inherits":332}],277:[function(require,module,exports){
 'use strict';
 
 var curve = exports;
@@ -33566,7 +35360,7 @@ curve.short = require('./short');
 curve.mont = require('./mont');
 curve.edwards = require('./edwards');
 
-},{"./base":262,"./edwards":263,"./mont":265,"./short":266}],265:[function(require,module,exports){
+},{"./base":275,"./edwards":276,"./mont":278,"./short":279}],278:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -33746,7 +35540,7 @@ Point.prototype.getX = function getX() {
   return this.x.fromRed();
 };
 
-},{"../utils":275,"./base":262,"bn.js":276,"inherits":310}],266:[function(require,module,exports){
+},{"../utils":288,"./base":275,"bn.js":289,"inherits":332}],279:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -34686,7 +36480,7 @@ JPoint.prototype.isInfinity = function isInfinity() {
   return this.z.cmpn(0) === 0;
 };
 
-},{"../utils":275,"./base":262,"bn.js":276,"inherits":310}],267:[function(require,module,exports){
+},{"../utils":288,"./base":275,"bn.js":289,"inherits":332}],280:[function(require,module,exports){
 'use strict';
 
 var curves = exports;
@@ -34894,7 +36688,7 @@ defineCurve('secp256k1', {
   ],
 });
 
-},{"./curve":264,"./precomputed/secp256k1":274,"./utils":275,"hash.js":296}],268:[function(require,module,exports){
+},{"./curve":277,"./precomputed/secp256k1":287,"./utils":288,"hash.js":318}],281:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -35139,7 +36933,7 @@ EC.prototype.getKeyRecoveryParam = function(e, signature, Q, enc) {
   throw new Error('Unable to find valid recovery factor');
 };
 
-},{"../curves":267,"../utils":275,"./key":269,"./signature":270,"bn.js":276,"brorand":194,"hmac-drbg":308}],269:[function(require,module,exports){
+},{"../curves":280,"../utils":288,"./key":282,"./signature":283,"bn.js":289,"brorand":205,"hmac-drbg":330}],282:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -35262,7 +37056,7 @@ KeyPair.prototype.inspect = function inspect() {
          ' pub: ' + (this.pub && this.pub.inspect()) + ' >';
 };
 
-},{"../utils":275,"bn.js":276}],270:[function(require,module,exports){
+},{"../utils":288,"bn.js":289}],283:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -35430,7 +37224,7 @@ Signature.prototype.toDER = function toDER(enc) {
   return utils.encode(res, enc);
 };
 
-},{"../utils":275,"bn.js":276}],271:[function(require,module,exports){
+},{"../utils":288,"bn.js":289}],284:[function(require,module,exports){
 'use strict';
 
 var hash = require('hash.js');
@@ -35550,7 +37344,7 @@ EDDSA.prototype.isPoint = function isPoint(val) {
   return val instanceof this.pointClass;
 };
 
-},{"../curves":267,"../utils":275,"./key":272,"./signature":273,"hash.js":296}],272:[function(require,module,exports){
+},{"../curves":280,"../utils":288,"./key":285,"./signature":286,"hash.js":318}],285:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -35647,7 +37441,7 @@ KeyPair.prototype.getPublic = function getPublic(enc) {
 
 module.exports = KeyPair;
 
-},{"../utils":275}],273:[function(require,module,exports){
+},{"../utils":288}],286:[function(require,module,exports){
 'use strict';
 
 var BN = require('bn.js');
@@ -35714,7 +37508,7 @@ Signature.prototype.toHex = function toHex() {
 
 module.exports = Signature;
 
-},{"../utils":275,"bn.js":276}],274:[function(require,module,exports){
+},{"../utils":288,"bn.js":289}],287:[function(require,module,exports){
 module.exports = {
   doubles: {
     step: 4,
@@ -36496,7 +38290,7 @@ module.exports = {
   },
 };
 
-},{}],275:[function(require,module,exports){
+},{}],288:[function(require,module,exports){
 'use strict';
 
 var utils = exports;
@@ -36617,9 +38411,9 @@ function intFromLE(bytes) {
 utils.intFromLE = intFromLE;
 
 
-},{"bn.js":276,"minimalistic-assert":316,"minimalistic-crypto-utils":317}],276:[function(require,module,exports){
-arguments[4][191][0].apply(exports,arguments)
-},{"buffer":195,"dup":191}],277:[function(require,module,exports){
+},{"bn.js":289,"minimalistic-assert":339,"minimalistic-crypto-utils":340}],289:[function(require,module,exports){
+arguments[4][197][0].apply(exports,arguments)
+},{"buffer":206,"dup":197}],290:[function(require,module,exports){
 module.exports={
   "_from": "elliptic@^6.5.3",
   "_id": "elliptic@6.5.4",
@@ -36644,7 +38438,7 @@ module.exports={
   "_resolved": "https://registry.npmjs.org/elliptic/-/elliptic-6.5.4.tgz",
   "_shasum": "da37cebd31e79a1367e941b592ed1fbebd58abbb",
   "_spec": "elliptic@^6.5.3",
-  "_where": "/home/ubuntu/lib/node_modules/allexsdk/node_modules/browserify-sign",
+  "_where": "/home/andra/lib/node_modules/allexsdk/node_modules/browserify-sign",
   "author": {
     "name": "Fedor Indutny",
     "email": "fedor@indutny.com"
@@ -36706,7 +38500,24 @@ module.exports={
   "version": "6.5.4"
 }
 
-},{}],278:[function(require,module,exports){
+},{}],291:[function(require,module,exports){
+'use strict';
+
+var GetIntrinsic = require('get-intrinsic');
+
+var $gOPD = GetIntrinsic('%Object.getOwnPropertyDescriptor%', true);
+if ($gOPD) {
+	try {
+		$gOPD([], 'length');
+	} catch (e) {
+		// IE 8 has a broken gOPD
+		$gOPD = null;
+	}
+}
+
+module.exports = $gOPD;
+
+},{"get-intrinsic":297}],292:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -36728,182 +38539,143 @@ module.exports={
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-var objectCreate = Object.create || objectCreatePolyfill
-var objectKeys = Object.keys || objectKeysPolyfill
-var bind = Function.prototype.bind || functionBindPolyfill
+'use strict';
 
-function EventEmitter() {
-  if (!this._events || !Object.prototype.hasOwnProperty.call(this, '_events')) {
-    this._events = objectCreate(null);
-    this._eventsCount = 0;
+var R = typeof Reflect === 'object' ? Reflect : null
+var ReflectApply = R && typeof R.apply === 'function'
+  ? R.apply
+  : function ReflectApply(target, receiver, args) {
+    return Function.prototype.apply.call(target, receiver, args);
   }
 
-  this._maxListeners = this._maxListeners || undefined;
+var ReflectOwnKeys
+if (R && typeof R.ownKeys === 'function') {
+  ReflectOwnKeys = R.ownKeys
+} else if (Object.getOwnPropertySymbols) {
+  ReflectOwnKeys = function ReflectOwnKeys(target) {
+    return Object.getOwnPropertyNames(target)
+      .concat(Object.getOwnPropertySymbols(target));
+  };
+} else {
+  ReflectOwnKeys = function ReflectOwnKeys(target) {
+    return Object.getOwnPropertyNames(target);
+  };
+}
+
+function ProcessEmitWarning(warning) {
+  if (console && console.warn) console.warn(warning);
+}
+
+var NumberIsNaN = Number.isNaN || function NumberIsNaN(value) {
+  return value !== value;
+}
+
+function EventEmitter() {
+  EventEmitter.init.call(this);
 }
 module.exports = EventEmitter;
+module.exports.once = once;
 
 // Backwards-compat with node 0.10.x
 EventEmitter.EventEmitter = EventEmitter;
 
 EventEmitter.prototype._events = undefined;
+EventEmitter.prototype._eventsCount = 0;
 EventEmitter.prototype._maxListeners = undefined;
 
 // By default EventEmitters will print a warning if more than 10 listeners are
 // added to it. This is a useful default which helps finding memory leaks.
 var defaultMaxListeners = 10;
 
-var hasDefineProperty;
-try {
-  var o = {};
-  if (Object.defineProperty) Object.defineProperty(o, 'x', { value: 0 });
-  hasDefineProperty = o.x === 0;
-} catch (err) { hasDefineProperty = false }
-if (hasDefineProperty) {
-  Object.defineProperty(EventEmitter, 'defaultMaxListeners', {
-    enumerable: true,
-    get: function() {
-      return defaultMaxListeners;
-    },
-    set: function(arg) {
-      // check whether the input is a positive number (whose value is zero or
-      // greater and not a NaN).
-      if (typeof arg !== 'number' || arg < 0 || arg !== arg)
-        throw new TypeError('"defaultMaxListeners" must be a positive number');
-      defaultMaxListeners = arg;
-    }
-  });
-} else {
-  EventEmitter.defaultMaxListeners = defaultMaxListeners;
+function checkListener(listener) {
+  if (typeof listener !== 'function') {
+    throw new TypeError('The "listener" argument must be of type Function. Received type ' + typeof listener);
+  }
 }
+
+Object.defineProperty(EventEmitter, 'defaultMaxListeners', {
+  enumerable: true,
+  get: function() {
+    return defaultMaxListeners;
+  },
+  set: function(arg) {
+    if (typeof arg !== 'number' || arg < 0 || NumberIsNaN(arg)) {
+      throw new RangeError('The value of "defaultMaxListeners" is out of range. It must be a non-negative number. Received ' + arg + '.');
+    }
+    defaultMaxListeners = arg;
+  }
+});
+
+EventEmitter.init = function() {
+
+  if (this._events === undefined ||
+      this._events === Object.getPrototypeOf(this)._events) {
+    this._events = Object.create(null);
+    this._eventsCount = 0;
+  }
+
+  this._maxListeners = this._maxListeners || undefined;
+};
 
 // Obviously not all Emitters should be limited to 10. This function allows
 // that to be increased. Set to zero for unlimited.
 EventEmitter.prototype.setMaxListeners = function setMaxListeners(n) {
-  if (typeof n !== 'number' || n < 0 || isNaN(n))
-    throw new TypeError('"n" argument must be a positive number');
+  if (typeof n !== 'number' || n < 0 || NumberIsNaN(n)) {
+    throw new RangeError('The value of "n" is out of range. It must be a non-negative number. Received ' + n + '.');
+  }
   this._maxListeners = n;
   return this;
 };
 
-function $getMaxListeners(that) {
+function _getMaxListeners(that) {
   if (that._maxListeners === undefined)
     return EventEmitter.defaultMaxListeners;
   return that._maxListeners;
 }
 
 EventEmitter.prototype.getMaxListeners = function getMaxListeners() {
-  return $getMaxListeners(this);
+  return _getMaxListeners(this);
 };
 
-// These standalone emit* functions are used to optimize calling of event
-// handlers for fast cases because emit() itself often has a variable number of
-// arguments and can be deoptimized because of that. These functions always have
-// the same number of arguments and thus do not get deoptimized, so the code
-// inside them can execute faster.
-function emitNone(handler, isFn, self) {
-  if (isFn)
-    handler.call(self);
-  else {
-    var len = handler.length;
-    var listeners = arrayClone(handler, len);
-    for (var i = 0; i < len; ++i)
-      listeners[i].call(self);
-  }
-}
-function emitOne(handler, isFn, self, arg1) {
-  if (isFn)
-    handler.call(self, arg1);
-  else {
-    var len = handler.length;
-    var listeners = arrayClone(handler, len);
-    for (var i = 0; i < len; ++i)
-      listeners[i].call(self, arg1);
-  }
-}
-function emitTwo(handler, isFn, self, arg1, arg2) {
-  if (isFn)
-    handler.call(self, arg1, arg2);
-  else {
-    var len = handler.length;
-    var listeners = arrayClone(handler, len);
-    for (var i = 0; i < len; ++i)
-      listeners[i].call(self, arg1, arg2);
-  }
-}
-function emitThree(handler, isFn, self, arg1, arg2, arg3) {
-  if (isFn)
-    handler.call(self, arg1, arg2, arg3);
-  else {
-    var len = handler.length;
-    var listeners = arrayClone(handler, len);
-    for (var i = 0; i < len; ++i)
-      listeners[i].call(self, arg1, arg2, arg3);
-  }
-}
-
-function emitMany(handler, isFn, self, args) {
-  if (isFn)
-    handler.apply(self, args);
-  else {
-    var len = handler.length;
-    var listeners = arrayClone(handler, len);
-    for (var i = 0; i < len; ++i)
-      listeners[i].apply(self, args);
-  }
-}
-
 EventEmitter.prototype.emit = function emit(type) {
-  var er, handler, len, args, i, events;
+  var args = [];
+  for (var i = 1; i < arguments.length; i++) args.push(arguments[i]);
   var doError = (type === 'error');
 
-  events = this._events;
-  if (events)
-    doError = (doError && events.error == null);
+  var events = this._events;
+  if (events !== undefined)
+    doError = (doError && events.error === undefined);
   else if (!doError)
     return false;
 
   // If there is no 'error' event listener then throw.
   if (doError) {
-    if (arguments.length > 1)
-      er = arguments[1];
+    var er;
+    if (args.length > 0)
+      er = args[0];
     if (er instanceof Error) {
+      // Note: The comments on the `throw` lines are intentional, they show
+      // up in Node's output if this results in an unhandled exception.
       throw er; // Unhandled 'error' event
-    } else {
-      // At least give some kind of context to the user
-      var err = new Error('Unhandled "error" event. (' + er + ')');
-      err.context = er;
-      throw err;
     }
-    return false;
+    // At least give some kind of context to the user
+    var err = new Error('Unhandled error.' + (er ? ' (' + er.message + ')' : ''));
+    err.context = er;
+    throw err; // Unhandled 'error' event
   }
 
-  handler = events[type];
+  var handler = events[type];
 
-  if (!handler)
+  if (handler === undefined)
     return false;
 
-  var isFn = typeof handler === 'function';
-  len = arguments.length;
-  switch (len) {
-      // fast cases
-    case 1:
-      emitNone(handler, isFn, this);
-      break;
-    case 2:
-      emitOne(handler, isFn, this, arguments[1]);
-      break;
-    case 3:
-      emitTwo(handler, isFn, this, arguments[1], arguments[2]);
-      break;
-    case 4:
-      emitThree(handler, isFn, this, arguments[1], arguments[2], arguments[3]);
-      break;
-      // slower
-    default:
-      args = new Array(len - 1);
-      for (i = 1; i < len; i++)
-        args[i - 1] = arguments[i];
-      emitMany(handler, isFn, this, args);
+  if (typeof handler === 'function') {
+    ReflectApply(handler, this, args);
+  } else {
+    var len = handler.length;
+    var listeners = arrayClone(handler, len);
+    for (var i = 0; i < len; ++i)
+      ReflectApply(listeners[i], this, args);
   }
 
   return true;
@@ -36914,19 +38686,18 @@ function _addListener(target, type, listener, prepend) {
   var events;
   var existing;
 
-  if (typeof listener !== 'function')
-    throw new TypeError('"listener" argument must be a function');
+  checkListener(listener);
 
   events = target._events;
-  if (!events) {
-    events = target._events = objectCreate(null);
+  if (events === undefined) {
+    events = target._events = Object.create(null);
     target._eventsCount = 0;
   } else {
     // To avoid recursion in the case that type === "newListener"! Before
     // adding it to the listeners, first emit "newListener".
-    if (events.newListener) {
+    if (events.newListener !== undefined) {
       target.emit('newListener', type,
-          listener.listener ? listener.listener : listener);
+                  listener.listener ? listener.listener : listener);
 
       // Re-assign `events` because a newListener handler could have caused the
       // this._events to be assigned to a new object
@@ -36935,7 +38706,7 @@ function _addListener(target, type, listener, prepend) {
     existing = events[type];
   }
 
-  if (!existing) {
+  if (existing === undefined) {
     // Optimize the case of one listener. Don't need the extra array object.
     existing = events[type] = listener;
     ++target._eventsCount;
@@ -36943,33 +38714,29 @@ function _addListener(target, type, listener, prepend) {
     if (typeof existing === 'function') {
       // Adding the second element, need to change to array.
       existing = events[type] =
-          prepend ? [listener, existing] : [existing, listener];
-    } else {
+        prepend ? [listener, existing] : [existing, listener];
       // If we've already got an array, just append.
-      if (prepend) {
-        existing.unshift(listener);
-      } else {
-        existing.push(listener);
-      }
+    } else if (prepend) {
+      existing.unshift(listener);
+    } else {
+      existing.push(listener);
     }
 
     // Check for listener leak
-    if (!existing.warned) {
-      m = $getMaxListeners(target);
-      if (m && m > 0 && existing.length > m) {
-        existing.warned = true;
-        var w = new Error('Possible EventEmitter memory leak detected. ' +
-            existing.length + ' "' + String(type) + '" listeners ' +
-            'added. Use emitter.setMaxListeners() to ' +
-            'increase limit.');
-        w.name = 'MaxListenersExceededWarning';
-        w.emitter = target;
-        w.type = type;
-        w.count = existing.length;
-        if (typeof console === 'object' && console.warn) {
-          console.warn('%s: %s', w.name, w.message);
-        }
-      }
+    m = _getMaxListeners(target);
+    if (m > 0 && existing.length > m && !existing.warned) {
+      existing.warned = true;
+      // No error code for this since it is a Warning
+      // eslint-disable-next-line no-restricted-syntax
+      var w = new Error('Possible EventEmitter memory leak detected. ' +
+                          existing.length + ' ' + String(type) + ' listeners ' +
+                          'added. Use emitter.setMaxListeners() to ' +
+                          'increase limit');
+      w.name = 'MaxListenersExceededWarning';
+      w.emitter = target;
+      w.type = type;
+      w.count = existing.length;
+      ProcessEmitWarning(w);
     }
   }
 
@@ -36991,44 +38758,29 @@ function onceWrapper() {
   if (!this.fired) {
     this.target.removeListener(this.type, this.wrapFn);
     this.fired = true;
-    switch (arguments.length) {
-      case 0:
-        return this.listener.call(this.target);
-      case 1:
-        return this.listener.call(this.target, arguments[0]);
-      case 2:
-        return this.listener.call(this.target, arguments[0], arguments[1]);
-      case 3:
-        return this.listener.call(this.target, arguments[0], arguments[1],
-            arguments[2]);
-      default:
-        var args = new Array(arguments.length);
-        for (var i = 0; i < args.length; ++i)
-          args[i] = arguments[i];
-        this.listener.apply(this.target, args);
-    }
+    if (arguments.length === 0)
+      return this.listener.call(this.target);
+    return this.listener.apply(this.target, arguments);
   }
 }
 
 function _onceWrap(target, type, listener) {
   var state = { fired: false, wrapFn: undefined, target: target, type: type, listener: listener };
-  var wrapped = bind.call(onceWrapper, state);
+  var wrapped = onceWrapper.bind(state);
   wrapped.listener = listener;
   state.wrapFn = wrapped;
   return wrapped;
 }
 
 EventEmitter.prototype.once = function once(type, listener) {
-  if (typeof listener !== 'function')
-    throw new TypeError('"listener" argument must be a function');
+  checkListener(listener);
   this.on(type, _onceWrap(this, type, listener));
   return this;
 };
 
 EventEmitter.prototype.prependOnceListener =
     function prependOnceListener(type, listener) {
-      if (typeof listener !== 'function')
-        throw new TypeError('"listener" argument must be a function');
+      checkListener(listener);
       this.prependListener(type, _onceWrap(this, type, listener));
       return this;
     };
@@ -37038,20 +38790,19 @@ EventEmitter.prototype.removeListener =
     function removeListener(type, listener) {
       var list, events, position, i, originalListener;
 
-      if (typeof listener !== 'function')
-        throw new TypeError('"listener" argument must be a function');
+      checkListener(listener);
 
       events = this._events;
-      if (!events)
+      if (events === undefined)
         return this;
 
       list = events[type];
-      if (!list)
+      if (list === undefined)
         return this;
 
       if (list === listener || list.listener === listener) {
         if (--this._eventsCount === 0)
-          this._events = objectCreate(null);
+          this._events = Object.create(null);
         else {
           delete events[type];
           if (events.removeListener)
@@ -37073,35 +38824,38 @@ EventEmitter.prototype.removeListener =
 
         if (position === 0)
           list.shift();
-        else
+        else {
           spliceOne(list, position);
+        }
 
         if (list.length === 1)
           events[type] = list[0];
 
-        if (events.removeListener)
+        if (events.removeListener !== undefined)
           this.emit('removeListener', type, originalListener || listener);
       }
 
       return this;
     };
 
+EventEmitter.prototype.off = EventEmitter.prototype.removeListener;
+
 EventEmitter.prototype.removeAllListeners =
     function removeAllListeners(type) {
       var listeners, events, i;
 
       events = this._events;
-      if (!events)
+      if (events === undefined)
         return this;
 
       // not listening for removeListener, no need to emit
-      if (!events.removeListener) {
+      if (events.removeListener === undefined) {
         if (arguments.length === 0) {
-          this._events = objectCreate(null);
+          this._events = Object.create(null);
           this._eventsCount = 0;
-        } else if (events[type]) {
+        } else if (events[type] !== undefined) {
           if (--this._eventsCount === 0)
-            this._events = objectCreate(null);
+            this._events = Object.create(null);
           else
             delete events[type];
         }
@@ -37110,7 +38864,7 @@ EventEmitter.prototype.removeAllListeners =
 
       // emit removeListener for all listeners on all events
       if (arguments.length === 0) {
-        var keys = objectKeys(events);
+        var keys = Object.keys(events);
         var key;
         for (i = 0; i < keys.length; ++i) {
           key = keys[i];
@@ -37118,7 +38872,7 @@ EventEmitter.prototype.removeAllListeners =
           this.removeAllListeners(key);
         }
         this.removeAllListeners('removeListener');
-        this._events = objectCreate(null);
+        this._events = Object.create(null);
         this._eventsCount = 0;
         return this;
       }
@@ -37127,7 +38881,7 @@ EventEmitter.prototype.removeAllListeners =
 
       if (typeof listeners === 'function') {
         this.removeListener(type, listeners);
-      } else if (listeners) {
+      } else if (listeners !== undefined) {
         // LIFO order
         for (i = listeners.length - 1; i >= 0; i--) {
           this.removeListener(type, listeners[i]);
@@ -37140,17 +38894,18 @@ EventEmitter.prototype.removeAllListeners =
 function _listeners(target, type, unwrap) {
   var events = target._events;
 
-  if (!events)
+  if (events === undefined)
     return [];
 
   var evlistener = events[type];
-  if (!evlistener)
+  if (evlistener === undefined)
     return [];
 
   if (typeof evlistener === 'function')
     return unwrap ? [evlistener.listener || evlistener] : [evlistener];
 
-  return unwrap ? unwrapListeners(evlistener) : arrayClone(evlistener, evlistener.length);
+  return unwrap ?
+    unwrapListeners(evlistener) : arrayClone(evlistener, evlistener.length);
 }
 
 EventEmitter.prototype.listeners = function listeners(type) {
@@ -37173,12 +38928,12 @@ EventEmitter.prototype.listenerCount = listenerCount;
 function listenerCount(type) {
   var events = this._events;
 
-  if (events) {
+  if (events !== undefined) {
     var evlistener = events[type];
 
     if (typeof evlistener === 'function') {
       return 1;
-    } else if (evlistener) {
+    } else if (evlistener !== undefined) {
       return evlistener.length;
     }
   }
@@ -37187,21 +38942,20 @@ function listenerCount(type) {
 }
 
 EventEmitter.prototype.eventNames = function eventNames() {
-  return this._eventsCount > 0 ? Reflect.ownKeys(this._events) : [];
+  return this._eventsCount > 0 ? ReflectOwnKeys(this._events) : [];
 };
-
-// About 1.5x faster than the two-arg version of Array#splice().
-function spliceOne(list, index) {
-  for (var i = index, k = i + 1, n = list.length; k < n; i += 1, k += 1)
-    list[i] = list[k];
-  list.pop();
-}
 
 function arrayClone(arr, n) {
   var copy = new Array(n);
   for (var i = 0; i < n; ++i)
     copy[i] = arr[i];
   return copy;
+}
+
+function spliceOne(list, index) {
+  for (; index + 1 < list.length; index++)
+    list[index] = list[index + 1];
+  list.pop();
 }
 
 function unwrapListeners(arr) {
@@ -37212,26 +38966,57 @@ function unwrapListeners(arr) {
   return ret;
 }
 
-function objectCreatePolyfill(proto) {
-  var F = function() {};
-  F.prototype = proto;
-  return new F;
-}
-function objectKeysPolyfill(obj) {
-  var keys = [];
-  for (var k in obj) if (Object.prototype.hasOwnProperty.call(obj, k)) {
-    keys.push(k);
-  }
-  return k;
-}
-function functionBindPolyfill(context) {
-  var fn = this;
-  return function () {
-    return fn.apply(context, arguments);
-  };
+function once(emitter, name) {
+  return new Promise(function (resolve, reject) {
+    function errorListener(err) {
+      emitter.removeListener(name, resolver);
+      reject(err);
+    }
+
+    function resolver() {
+      if (typeof emitter.removeListener === 'function') {
+        emitter.removeListener('error', errorListener);
+      }
+      resolve([].slice.call(arguments));
+    };
+
+    eventTargetAgnosticAddListener(emitter, name, resolver, { once: true });
+    if (name !== 'error') {
+      addErrorHandlerIfEventEmitter(emitter, errorListener, { once: true });
+    }
+  });
 }
 
-},{}],279:[function(require,module,exports){
+function addErrorHandlerIfEventEmitter(emitter, handler, flags) {
+  if (typeof emitter.on === 'function') {
+    eventTargetAgnosticAddListener(emitter, 'error', handler, flags);
+  }
+}
+
+function eventTargetAgnosticAddListener(emitter, name, listener, flags) {
+  if (typeof emitter.on === 'function') {
+    if (flags.once) {
+      emitter.once(name, listener);
+    } else {
+      emitter.on(name, listener);
+    }
+  } else if (typeof emitter.addEventListener === 'function') {
+    // EventTarget does not have `error` event semantics like Node
+    // EventEmitters, we do not listen for `error` events here.
+    emitter.addEventListener(name, function wrapListener(arg) {
+      // IE does not have builtin `{ once: true }` support so we
+      // have to do it manually.
+      if (flags.once) {
+        emitter.removeEventListener(name, wrapListener);
+      }
+      listener(arg);
+    });
+  } else {
+    throw new TypeError('The "emitter" argument must be of type EventEmitter. Received type ' + typeof emitter);
+  }
+}
+
+},{}],293:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 var MD5 = require('md5.js')
 
@@ -37278,7 +39063,499 @@ function EVP_BytesToKey (password, salt, keyBits, ivLen) {
 
 module.exports = EVP_BytesToKey
 
-},{"md5.js":313,"safe-buffer":362}],280:[function(require,module,exports){
+},{"md5.js":336,"safe-buffer":370}],294:[function(require,module,exports){
+
+var hasOwn = Object.prototype.hasOwnProperty;
+var toString = Object.prototype.toString;
+
+module.exports = function forEach (obj, fn, ctx) {
+    if (toString.call(fn) !== '[object Function]') {
+        throw new TypeError('iterator must be a function');
+    }
+    var l = obj.length;
+    if (l === +l) {
+        for (var i = 0; i < l; i++) {
+            fn.call(ctx, obj[i], i, obj);
+        }
+    } else {
+        for (var k in obj) {
+            if (hasOwn.call(obj, k)) {
+                fn.call(ctx, obj[k], k, obj);
+            }
+        }
+    }
+};
+
+
+},{}],295:[function(require,module,exports){
+'use strict';
+
+/* eslint no-invalid-this: 1 */
+
+var ERROR_MESSAGE = 'Function.prototype.bind called on incompatible ';
+var slice = Array.prototype.slice;
+var toStr = Object.prototype.toString;
+var funcType = '[object Function]';
+
+module.exports = function bind(that) {
+    var target = this;
+    if (typeof target !== 'function' || toStr.call(target) !== funcType) {
+        throw new TypeError(ERROR_MESSAGE + target);
+    }
+    var args = slice.call(arguments, 1);
+
+    var bound;
+    var binder = function () {
+        if (this instanceof bound) {
+            var result = target.apply(
+                this,
+                args.concat(slice.call(arguments))
+            );
+            if (Object(result) === result) {
+                return result;
+            }
+            return this;
+        } else {
+            return target.apply(
+                that,
+                args.concat(slice.call(arguments))
+            );
+        }
+    };
+
+    var boundLength = Math.max(0, target.length - args.length);
+    var boundArgs = [];
+    for (var i = 0; i < boundLength; i++) {
+        boundArgs.push('$' + i);
+    }
+
+    bound = Function('binder', 'return function (' + boundArgs.join(',') + '){ return binder.apply(this,arguments); }')(binder);
+
+    if (target.prototype) {
+        var Empty = function Empty() {};
+        Empty.prototype = target.prototype;
+        bound.prototype = new Empty();
+        Empty.prototype = null;
+    }
+
+    return bound;
+};
+
+},{}],296:[function(require,module,exports){
+'use strict';
+
+var implementation = require('./implementation');
+
+module.exports = Function.prototype.bind || implementation;
+
+},{"./implementation":295}],297:[function(require,module,exports){
+'use strict';
+
+var undefined;
+
+var $SyntaxError = SyntaxError;
+var $Function = Function;
+var $TypeError = TypeError;
+
+// eslint-disable-next-line consistent-return
+var getEvalledConstructor = function (expressionSyntax) {
+	try {
+		return $Function('"use strict"; return (' + expressionSyntax + ').constructor;')();
+	} catch (e) {}
+};
+
+var $gOPD = Object.getOwnPropertyDescriptor;
+if ($gOPD) {
+	try {
+		$gOPD({}, '');
+	} catch (e) {
+		$gOPD = null; // this is IE 8, which has a broken gOPD
+	}
+}
+
+var throwTypeError = function () {
+	throw new $TypeError();
+};
+var ThrowTypeError = $gOPD
+	? (function () {
+		try {
+			// eslint-disable-next-line no-unused-expressions, no-caller, no-restricted-properties
+			arguments.callee; // IE 8 does not throw here
+			return throwTypeError;
+		} catch (calleeThrows) {
+			try {
+				// IE 8 throws on Object.getOwnPropertyDescriptor(arguments, '')
+				return $gOPD(arguments, 'callee').get;
+			} catch (gOPDthrows) {
+				return throwTypeError;
+			}
+		}
+	}())
+	: throwTypeError;
+
+var hasSymbols = require('has-symbols')();
+
+var getProto = Object.getPrototypeOf || function (x) { return x.__proto__; }; // eslint-disable-line no-proto
+
+var needsEval = {};
+
+var TypedArray = typeof Uint8Array === 'undefined' ? undefined : getProto(Uint8Array);
+
+var INTRINSICS = {
+	'%AggregateError%': typeof AggregateError === 'undefined' ? undefined : AggregateError,
+	'%Array%': Array,
+	'%ArrayBuffer%': typeof ArrayBuffer === 'undefined' ? undefined : ArrayBuffer,
+	'%ArrayIteratorPrototype%': hasSymbols ? getProto([][Symbol.iterator]()) : undefined,
+	'%AsyncFromSyncIteratorPrototype%': undefined,
+	'%AsyncFunction%': needsEval,
+	'%AsyncGenerator%': needsEval,
+	'%AsyncGeneratorFunction%': needsEval,
+	'%AsyncIteratorPrototype%': needsEval,
+	'%Atomics%': typeof Atomics === 'undefined' ? undefined : Atomics,
+	'%BigInt%': typeof BigInt === 'undefined' ? undefined : BigInt,
+	'%Boolean%': Boolean,
+	'%DataView%': typeof DataView === 'undefined' ? undefined : DataView,
+	'%Date%': Date,
+	'%decodeURI%': decodeURI,
+	'%decodeURIComponent%': decodeURIComponent,
+	'%encodeURI%': encodeURI,
+	'%encodeURIComponent%': encodeURIComponent,
+	'%Error%': Error,
+	'%eval%': eval, // eslint-disable-line no-eval
+	'%EvalError%': EvalError,
+	'%Float32Array%': typeof Float32Array === 'undefined' ? undefined : Float32Array,
+	'%Float64Array%': typeof Float64Array === 'undefined' ? undefined : Float64Array,
+	'%FinalizationRegistry%': typeof FinalizationRegistry === 'undefined' ? undefined : FinalizationRegistry,
+	'%Function%': $Function,
+	'%GeneratorFunction%': needsEval,
+	'%Int8Array%': typeof Int8Array === 'undefined' ? undefined : Int8Array,
+	'%Int16Array%': typeof Int16Array === 'undefined' ? undefined : Int16Array,
+	'%Int32Array%': typeof Int32Array === 'undefined' ? undefined : Int32Array,
+	'%isFinite%': isFinite,
+	'%isNaN%': isNaN,
+	'%IteratorPrototype%': hasSymbols ? getProto(getProto([][Symbol.iterator]())) : undefined,
+	'%JSON%': typeof JSON === 'object' ? JSON : undefined,
+	'%Map%': typeof Map === 'undefined' ? undefined : Map,
+	'%MapIteratorPrototype%': typeof Map === 'undefined' || !hasSymbols ? undefined : getProto(new Map()[Symbol.iterator]()),
+	'%Math%': Math,
+	'%Number%': Number,
+	'%Object%': Object,
+	'%parseFloat%': parseFloat,
+	'%parseInt%': parseInt,
+	'%Promise%': typeof Promise === 'undefined' ? undefined : Promise,
+	'%Proxy%': typeof Proxy === 'undefined' ? undefined : Proxy,
+	'%RangeError%': RangeError,
+	'%ReferenceError%': ReferenceError,
+	'%Reflect%': typeof Reflect === 'undefined' ? undefined : Reflect,
+	'%RegExp%': RegExp,
+	'%Set%': typeof Set === 'undefined' ? undefined : Set,
+	'%SetIteratorPrototype%': typeof Set === 'undefined' || !hasSymbols ? undefined : getProto(new Set()[Symbol.iterator]()),
+	'%SharedArrayBuffer%': typeof SharedArrayBuffer === 'undefined' ? undefined : SharedArrayBuffer,
+	'%String%': String,
+	'%StringIteratorPrototype%': hasSymbols ? getProto(''[Symbol.iterator]()) : undefined,
+	'%Symbol%': hasSymbols ? Symbol : undefined,
+	'%SyntaxError%': $SyntaxError,
+	'%ThrowTypeError%': ThrowTypeError,
+	'%TypedArray%': TypedArray,
+	'%TypeError%': $TypeError,
+	'%Uint8Array%': typeof Uint8Array === 'undefined' ? undefined : Uint8Array,
+	'%Uint8ClampedArray%': typeof Uint8ClampedArray === 'undefined' ? undefined : Uint8ClampedArray,
+	'%Uint16Array%': typeof Uint16Array === 'undefined' ? undefined : Uint16Array,
+	'%Uint32Array%': typeof Uint32Array === 'undefined' ? undefined : Uint32Array,
+	'%URIError%': URIError,
+	'%WeakMap%': typeof WeakMap === 'undefined' ? undefined : WeakMap,
+	'%WeakRef%': typeof WeakRef === 'undefined' ? undefined : WeakRef,
+	'%WeakSet%': typeof WeakSet === 'undefined' ? undefined : WeakSet
+};
+
+var doEval = function doEval(name) {
+	var value;
+	if (name === '%AsyncFunction%') {
+		value = getEvalledConstructor('async function () {}');
+	} else if (name === '%GeneratorFunction%') {
+		value = getEvalledConstructor('function* () {}');
+	} else if (name === '%AsyncGeneratorFunction%') {
+		value = getEvalledConstructor('async function* () {}');
+	} else if (name === '%AsyncGenerator%') {
+		var fn = doEval('%AsyncGeneratorFunction%');
+		if (fn) {
+			value = fn.prototype;
+		}
+	} else if (name === '%AsyncIteratorPrototype%') {
+		var gen = doEval('%AsyncGenerator%');
+		if (gen) {
+			value = getProto(gen.prototype);
+		}
+	}
+
+	INTRINSICS[name] = value;
+
+	return value;
+};
+
+var LEGACY_ALIASES = {
+	'%ArrayBufferPrototype%': ['ArrayBuffer', 'prototype'],
+	'%ArrayPrototype%': ['Array', 'prototype'],
+	'%ArrayProto_entries%': ['Array', 'prototype', 'entries'],
+	'%ArrayProto_forEach%': ['Array', 'prototype', 'forEach'],
+	'%ArrayProto_keys%': ['Array', 'prototype', 'keys'],
+	'%ArrayProto_values%': ['Array', 'prototype', 'values'],
+	'%AsyncFunctionPrototype%': ['AsyncFunction', 'prototype'],
+	'%AsyncGenerator%': ['AsyncGeneratorFunction', 'prototype'],
+	'%AsyncGeneratorPrototype%': ['AsyncGeneratorFunction', 'prototype', 'prototype'],
+	'%BooleanPrototype%': ['Boolean', 'prototype'],
+	'%DataViewPrototype%': ['DataView', 'prototype'],
+	'%DatePrototype%': ['Date', 'prototype'],
+	'%ErrorPrototype%': ['Error', 'prototype'],
+	'%EvalErrorPrototype%': ['EvalError', 'prototype'],
+	'%Float32ArrayPrototype%': ['Float32Array', 'prototype'],
+	'%Float64ArrayPrototype%': ['Float64Array', 'prototype'],
+	'%FunctionPrototype%': ['Function', 'prototype'],
+	'%Generator%': ['GeneratorFunction', 'prototype'],
+	'%GeneratorPrototype%': ['GeneratorFunction', 'prototype', 'prototype'],
+	'%Int8ArrayPrototype%': ['Int8Array', 'prototype'],
+	'%Int16ArrayPrototype%': ['Int16Array', 'prototype'],
+	'%Int32ArrayPrototype%': ['Int32Array', 'prototype'],
+	'%JSONParse%': ['JSON', 'parse'],
+	'%JSONStringify%': ['JSON', 'stringify'],
+	'%MapPrototype%': ['Map', 'prototype'],
+	'%NumberPrototype%': ['Number', 'prototype'],
+	'%ObjectPrototype%': ['Object', 'prototype'],
+	'%ObjProto_toString%': ['Object', 'prototype', 'toString'],
+	'%ObjProto_valueOf%': ['Object', 'prototype', 'valueOf'],
+	'%PromisePrototype%': ['Promise', 'prototype'],
+	'%PromiseProto_then%': ['Promise', 'prototype', 'then'],
+	'%Promise_all%': ['Promise', 'all'],
+	'%Promise_reject%': ['Promise', 'reject'],
+	'%Promise_resolve%': ['Promise', 'resolve'],
+	'%RangeErrorPrototype%': ['RangeError', 'prototype'],
+	'%ReferenceErrorPrototype%': ['ReferenceError', 'prototype'],
+	'%RegExpPrototype%': ['RegExp', 'prototype'],
+	'%SetPrototype%': ['Set', 'prototype'],
+	'%SharedArrayBufferPrototype%': ['SharedArrayBuffer', 'prototype'],
+	'%StringPrototype%': ['String', 'prototype'],
+	'%SymbolPrototype%': ['Symbol', 'prototype'],
+	'%SyntaxErrorPrototype%': ['SyntaxError', 'prototype'],
+	'%TypedArrayPrototype%': ['TypedArray', 'prototype'],
+	'%TypeErrorPrototype%': ['TypeError', 'prototype'],
+	'%Uint8ArrayPrototype%': ['Uint8Array', 'prototype'],
+	'%Uint8ClampedArrayPrototype%': ['Uint8ClampedArray', 'prototype'],
+	'%Uint16ArrayPrototype%': ['Uint16Array', 'prototype'],
+	'%Uint32ArrayPrototype%': ['Uint32Array', 'prototype'],
+	'%URIErrorPrototype%': ['URIError', 'prototype'],
+	'%WeakMapPrototype%': ['WeakMap', 'prototype'],
+	'%WeakSetPrototype%': ['WeakSet', 'prototype']
+};
+
+var bind = require('function-bind');
+var hasOwn = require('has');
+var $concat = bind.call(Function.call, Array.prototype.concat);
+var $spliceApply = bind.call(Function.apply, Array.prototype.splice);
+var $replace = bind.call(Function.call, String.prototype.replace);
+var $strSlice = bind.call(Function.call, String.prototype.slice);
+
+/* adapted from https://github.com/lodash/lodash/blob/4.17.15/dist/lodash.js#L6735-L6744 */
+var rePropName = /[^%.[\]]+|\[(?:(-?\d+(?:\.\d+)?)|(["'])((?:(?!\2)[^\\]|\\.)*?)\2)\]|(?=(?:\.|\[\])(?:\.|\[\]|%$))/g;
+var reEscapeChar = /\\(\\)?/g; /** Used to match backslashes in property paths. */
+var stringToPath = function stringToPath(string) {
+	var first = $strSlice(string, 0, 1);
+	var last = $strSlice(string, -1);
+	if (first === '%' && last !== '%') {
+		throw new $SyntaxError('invalid intrinsic syntax, expected closing `%`');
+	} else if (last === '%' && first !== '%') {
+		throw new $SyntaxError('invalid intrinsic syntax, expected opening `%`');
+	}
+	var result = [];
+	$replace(string, rePropName, function (match, number, quote, subString) {
+		result[result.length] = quote ? $replace(subString, reEscapeChar, '$1') : number || match;
+	});
+	return result;
+};
+/* end adaptation */
+
+var getBaseIntrinsic = function getBaseIntrinsic(name, allowMissing) {
+	var intrinsicName = name;
+	var alias;
+	if (hasOwn(LEGACY_ALIASES, intrinsicName)) {
+		alias = LEGACY_ALIASES[intrinsicName];
+		intrinsicName = '%' + alias[0] + '%';
+	}
+
+	if (hasOwn(INTRINSICS, intrinsicName)) {
+		var value = INTRINSICS[intrinsicName];
+		if (value === needsEval) {
+			value = doEval(intrinsicName);
+		}
+		if (typeof value === 'undefined' && !allowMissing) {
+			throw new $TypeError('intrinsic ' + name + ' exists, but is not available. Please file an issue!');
+		}
+
+		return {
+			alias: alias,
+			name: intrinsicName,
+			value: value
+		};
+	}
+
+	throw new $SyntaxError('intrinsic ' + name + ' does not exist!');
+};
+
+module.exports = function GetIntrinsic(name, allowMissing) {
+	if (typeof name !== 'string' || name.length === 0) {
+		throw new $TypeError('intrinsic name must be a non-empty string');
+	}
+	if (arguments.length > 1 && typeof allowMissing !== 'boolean') {
+		throw new $TypeError('"allowMissing" argument must be a boolean');
+	}
+
+	var parts = stringToPath(name);
+	var intrinsicBaseName = parts.length > 0 ? parts[0] : '';
+
+	var intrinsic = getBaseIntrinsic('%' + intrinsicBaseName + '%', allowMissing);
+	var intrinsicRealName = intrinsic.name;
+	var value = intrinsic.value;
+	var skipFurtherCaching = false;
+
+	var alias = intrinsic.alias;
+	if (alias) {
+		intrinsicBaseName = alias[0];
+		$spliceApply(parts, $concat([0, 1], alias));
+	}
+
+	for (var i = 1, isOwn = true; i < parts.length; i += 1) {
+		var part = parts[i];
+		var first = $strSlice(part, 0, 1);
+		var last = $strSlice(part, -1);
+		if (
+			(
+				(first === '"' || first === "'" || first === '`')
+				|| (last === '"' || last === "'" || last === '`')
+			)
+			&& first !== last
+		) {
+			throw new $SyntaxError('property names with quotes must have matching quotes');
+		}
+		if (part === 'constructor' || !isOwn) {
+			skipFurtherCaching = true;
+		}
+
+		intrinsicBaseName += '.' + part;
+		intrinsicRealName = '%' + intrinsicBaseName + '%';
+
+		if (hasOwn(INTRINSICS, intrinsicRealName)) {
+			value = INTRINSICS[intrinsicRealName];
+		} else if (value != null) {
+			if (!(part in value)) {
+				if (!allowMissing) {
+					throw new $TypeError('base intrinsic for ' + name + ' exists, but the property is not available.');
+				}
+				return void undefined;
+			}
+			if ($gOPD && (i + 1) >= parts.length) {
+				var desc = $gOPD(value, part);
+				isOwn = !!desc;
+
+				// By convention, when a data property is converted to an accessor
+				// property to emulate a data property that does not suffer from
+				// the override mistake, that accessor's getter is marked with
+				// an `originalValue` property. Here, when we detect this, we
+				// uphold the illusion by pretending to see that original data
+				// property, i.e., returning the value rather than the getter
+				// itself.
+				if (isOwn && 'get' in desc && !('originalValue' in desc.get)) {
+					value = desc.get;
+				} else {
+					value = value[part];
+				}
+			} else {
+				isOwn = hasOwn(value, part);
+				value = value[part];
+			}
+
+			if (isOwn && !skipFurtherCaching) {
+				INTRINSICS[intrinsicRealName] = value;
+			}
+		}
+	}
+	return value;
+};
+
+},{"function-bind":296,"has":301,"has-symbols":298}],298:[function(require,module,exports){
+'use strict';
+
+var origSymbol = typeof Symbol !== 'undefined' && Symbol;
+var hasSymbolSham = require('./shams');
+
+module.exports = function hasNativeSymbols() {
+	if (typeof origSymbol !== 'function') { return false; }
+	if (typeof Symbol !== 'function') { return false; }
+	if (typeof origSymbol('foo') !== 'symbol') { return false; }
+	if (typeof Symbol('bar') !== 'symbol') { return false; }
+
+	return hasSymbolSham();
+};
+
+},{"./shams":299}],299:[function(require,module,exports){
+'use strict';
+
+/* eslint complexity: [2, 18], max-statements: [2, 33] */
+module.exports = function hasSymbols() {
+	if (typeof Symbol !== 'function' || typeof Object.getOwnPropertySymbols !== 'function') { return false; }
+	if (typeof Symbol.iterator === 'symbol') { return true; }
+
+	var obj = {};
+	var sym = Symbol('test');
+	var symObj = Object(sym);
+	if (typeof sym === 'string') { return false; }
+
+	if (Object.prototype.toString.call(sym) !== '[object Symbol]') { return false; }
+	if (Object.prototype.toString.call(symObj) !== '[object Symbol]') { return false; }
+
+	// temp disabled per https://github.com/ljharb/object.assign/issues/17
+	// if (sym instanceof Symbol) { return false; }
+	// temp disabled per https://github.com/WebReflection/get-own-property-symbols/issues/4
+	// if (!(symObj instanceof Symbol)) { return false; }
+
+	// if (typeof Symbol.prototype.toString !== 'function') { return false; }
+	// if (String(sym) !== Symbol.prototype.toString.call(sym)) { return false; }
+
+	var symVal = 42;
+	obj[sym] = symVal;
+	for (sym in obj) { return false; } // eslint-disable-line no-restricted-syntax, no-unreachable-loop
+	if (typeof Object.keys === 'function' && Object.keys(obj).length !== 0) { return false; }
+
+	if (typeof Object.getOwnPropertyNames === 'function' && Object.getOwnPropertyNames(obj).length !== 0) { return false; }
+
+	var syms = Object.getOwnPropertySymbols(obj);
+	if (syms.length !== 1 || syms[0] !== sym) { return false; }
+
+	if (!Object.prototype.propertyIsEnumerable.call(obj, sym)) { return false; }
+
+	if (typeof Object.getOwnPropertyDescriptor === 'function') {
+		var descriptor = Object.getOwnPropertyDescriptor(obj, sym);
+		if (descriptor.value !== symVal || descriptor.enumerable !== true) { return false; }
+	}
+
+	return true;
+};
+
+},{}],300:[function(require,module,exports){
+'use strict';
+
+var hasSymbols = require('has-symbols/shams');
+
+module.exports = function hasToStringTagShams() {
+	return hasSymbols() && !!Symbol.toStringTag;
+};
+
+},{"has-symbols/shams":299}],301:[function(require,module,exports){
+'use strict';
+
+var bind = require('function-bind');
+
+module.exports = bind.call(Function.call, Object.prototype.hasOwnProperty);
+
+},{"function-bind":296}],302:[function(require,module,exports){
 'use strict'
 var Buffer = require('safe-buffer').Buffer
 var Transform = require('readable-stream').Transform
@@ -37375,37 +39652,37 @@ HashBase.prototype._digest = function () {
 
 module.exports = HashBase
 
-},{"inherits":310,"readable-stream":295,"safe-buffer":362}],281:[function(require,module,exports){
-arguments[4][223][0].apply(exports,arguments)
-},{"dup":223}],282:[function(require,module,exports){
-arguments[4][224][0].apply(exports,arguments)
-},{"./_stream_readable":284,"./_stream_writable":286,"_process":332,"dup":224,"inherits":310}],283:[function(require,module,exports){
-arguments[4][225][0].apply(exports,arguments)
-},{"./_stream_transform":285,"dup":225,"inherits":310}],284:[function(require,module,exports){
-arguments[4][226][0].apply(exports,arguments)
-},{"../errors":281,"./_stream_duplex":282,"./internal/streams/async_iterator":287,"./internal/streams/buffer_list":288,"./internal/streams/destroy":289,"./internal/streams/from":291,"./internal/streams/state":293,"./internal/streams/stream":294,"_process":332,"buffer":240,"dup":226,"events":278,"inherits":310,"string_decoder/":373,"util":195}],285:[function(require,module,exports){
-arguments[4][227][0].apply(exports,arguments)
-},{"../errors":281,"./_stream_duplex":282,"dup":227,"inherits":310}],286:[function(require,module,exports){
-arguments[4][228][0].apply(exports,arguments)
-},{"../errors":281,"./_stream_duplex":282,"./internal/streams/destroy":289,"./internal/streams/state":293,"./internal/streams/stream":294,"_process":332,"buffer":240,"dup":228,"inherits":310,"util-deprecate":377}],287:[function(require,module,exports){
-arguments[4][229][0].apply(exports,arguments)
-},{"./end-of-stream":290,"_process":332,"dup":229}],288:[function(require,module,exports){
-arguments[4][230][0].apply(exports,arguments)
-},{"buffer":240,"dup":230,"util":195}],289:[function(require,module,exports){
-arguments[4][231][0].apply(exports,arguments)
-},{"_process":332,"dup":231}],290:[function(require,module,exports){
-arguments[4][232][0].apply(exports,arguments)
-},{"../../../errors":281,"dup":232}],291:[function(require,module,exports){
-arguments[4][233][0].apply(exports,arguments)
-},{"dup":233}],292:[function(require,module,exports){
+},{"inherits":332,"readable-stream":317,"safe-buffer":370}],303:[function(require,module,exports){
 arguments[4][234][0].apply(exports,arguments)
-},{"../../../errors":281,"./end-of-stream":290,"dup":234}],293:[function(require,module,exports){
+},{"dup":234}],304:[function(require,module,exports){
 arguments[4][235][0].apply(exports,arguments)
-},{"../../../errors":281,"dup":235}],294:[function(require,module,exports){
+},{"./_stream_readable":306,"./_stream_writable":308,"_process":355,"dup":235,"inherits":332}],305:[function(require,module,exports){
 arguments[4][236][0].apply(exports,arguments)
-},{"dup":236,"events":278}],295:[function(require,module,exports){
+},{"./_stream_transform":307,"dup":236,"inherits":332}],306:[function(require,module,exports){
 arguments[4][237][0].apply(exports,arguments)
-},{"./lib/_stream_duplex.js":282,"./lib/_stream_passthrough.js":283,"./lib/_stream_readable.js":284,"./lib/_stream_transform.js":285,"./lib/_stream_writable.js":286,"./lib/internal/streams/end-of-stream.js":290,"./lib/internal/streams/pipeline.js":292,"dup":237}],296:[function(require,module,exports){
+},{"../errors":303,"./_stream_duplex":304,"./internal/streams/async_iterator":309,"./internal/streams/buffer_list":310,"./internal/streams/destroy":311,"./internal/streams/from":313,"./internal/streams/state":315,"./internal/streams/stream":316,"_process":355,"buffer":251,"dup":237,"events":292,"inherits":332,"string_decoder/":395,"util":206}],307:[function(require,module,exports){
+arguments[4][238][0].apply(exports,arguments)
+},{"../errors":303,"./_stream_duplex":304,"dup":238,"inherits":332}],308:[function(require,module,exports){
+arguments[4][239][0].apply(exports,arguments)
+},{"../errors":303,"./_stream_duplex":304,"./internal/streams/destroy":311,"./internal/streams/state":315,"./internal/streams/stream":316,"_process":355,"buffer":251,"dup":239,"inherits":332,"util-deprecate":399}],309:[function(require,module,exports){
+arguments[4][240][0].apply(exports,arguments)
+},{"./end-of-stream":312,"_process":355,"dup":240}],310:[function(require,module,exports){
+arguments[4][241][0].apply(exports,arguments)
+},{"buffer":251,"dup":241,"util":206}],311:[function(require,module,exports){
+arguments[4][242][0].apply(exports,arguments)
+},{"_process":355,"dup":242}],312:[function(require,module,exports){
+arguments[4][243][0].apply(exports,arguments)
+},{"../../../errors":303,"dup":243}],313:[function(require,module,exports){
+arguments[4][244][0].apply(exports,arguments)
+},{"dup":244}],314:[function(require,module,exports){
+arguments[4][245][0].apply(exports,arguments)
+},{"../../../errors":303,"./end-of-stream":312,"dup":245}],315:[function(require,module,exports){
+arguments[4][246][0].apply(exports,arguments)
+},{"../../../errors":303,"dup":246}],316:[function(require,module,exports){
+arguments[4][247][0].apply(exports,arguments)
+},{"dup":247,"events":292}],317:[function(require,module,exports){
+arguments[4][248][0].apply(exports,arguments)
+},{"./lib/_stream_duplex.js":304,"./lib/_stream_passthrough.js":305,"./lib/_stream_readable.js":306,"./lib/_stream_transform.js":307,"./lib/_stream_writable.js":308,"./lib/internal/streams/end-of-stream.js":312,"./lib/internal/streams/pipeline.js":314,"dup":248}],318:[function(require,module,exports){
 var hash = exports;
 
 hash.utils = require('./hash/utils');
@@ -37422,7 +39699,7 @@ hash.sha384 = hash.sha.sha384;
 hash.sha512 = hash.sha.sha512;
 hash.ripemd160 = hash.ripemd.ripemd160;
 
-},{"./hash/common":297,"./hash/hmac":298,"./hash/ripemd":299,"./hash/sha":300,"./hash/utils":307}],297:[function(require,module,exports){
+},{"./hash/common":319,"./hash/hmac":320,"./hash/ripemd":321,"./hash/sha":322,"./hash/utils":329}],319:[function(require,module,exports){
 'use strict';
 
 var utils = require('./utils');
@@ -37516,7 +39793,7 @@ BlockHash.prototype._pad = function pad() {
   return res;
 };
 
-},{"./utils":307,"minimalistic-assert":316}],298:[function(require,module,exports){
+},{"./utils":329,"minimalistic-assert":339}],320:[function(require,module,exports){
 'use strict';
 
 var utils = require('./utils');
@@ -37565,7 +39842,7 @@ Hmac.prototype.digest = function digest(enc) {
   return this.outer.digest(enc);
 };
 
-},{"./utils":307,"minimalistic-assert":316}],299:[function(require,module,exports){
+},{"./utils":329,"minimalistic-assert":339}],321:[function(require,module,exports){
 'use strict';
 
 var utils = require('./utils');
@@ -37713,7 +39990,7 @@ var sh = [
   8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11
 ];
 
-},{"./common":297,"./utils":307}],300:[function(require,module,exports){
+},{"./common":319,"./utils":329}],322:[function(require,module,exports){
 'use strict';
 
 exports.sha1 = require('./sha/1');
@@ -37722,7 +39999,7 @@ exports.sha256 = require('./sha/256');
 exports.sha384 = require('./sha/384');
 exports.sha512 = require('./sha/512');
 
-},{"./sha/1":301,"./sha/224":302,"./sha/256":303,"./sha/384":304,"./sha/512":305}],301:[function(require,module,exports){
+},{"./sha/1":323,"./sha/224":324,"./sha/256":325,"./sha/384":326,"./sha/512":327}],323:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -37798,7 +40075,7 @@ SHA1.prototype._digest = function digest(enc) {
     return utils.split32(this.h, 'big');
 };
 
-},{"../common":297,"../utils":307,"./common":306}],302:[function(require,module,exports){
+},{"../common":319,"../utils":329,"./common":328}],324:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -37830,7 +40107,7 @@ SHA224.prototype._digest = function digest(enc) {
 };
 
 
-},{"../utils":307,"./256":303}],303:[function(require,module,exports){
+},{"../utils":329,"./256":325}],325:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -37937,7 +40214,7 @@ SHA256.prototype._digest = function digest(enc) {
     return utils.split32(this.h, 'big');
 };
 
-},{"../common":297,"../utils":307,"./common":306,"minimalistic-assert":316}],304:[function(require,module,exports){
+},{"../common":319,"../utils":329,"./common":328,"minimalistic-assert":339}],326:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -37974,7 +40251,7 @@ SHA384.prototype._digest = function digest(enc) {
     return utils.split32(this.h.slice(0, 12), 'big');
 };
 
-},{"../utils":307,"./512":305}],305:[function(require,module,exports){
+},{"../utils":329,"./512":327}],327:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -38306,7 +40583,7 @@ function g1_512_lo(xh, xl) {
   return r;
 }
 
-},{"../common":297,"../utils":307,"minimalistic-assert":316}],306:[function(require,module,exports){
+},{"../common":319,"../utils":329,"minimalistic-assert":339}],328:[function(require,module,exports){
 'use strict';
 
 var utils = require('../utils');
@@ -38357,7 +40634,7 @@ function g1_256(x) {
 }
 exports.g1_256 = g1_256;
 
-},{"../utils":307}],307:[function(require,module,exports){
+},{"../utils":329}],329:[function(require,module,exports){
 'use strict';
 
 var assert = require('minimalistic-assert');
@@ -38637,7 +40914,7 @@ function shr64_lo(ah, al, num) {
 }
 exports.shr64_lo = shr64_lo;
 
-},{"inherits":310,"minimalistic-assert":316}],308:[function(require,module,exports){
+},{"inherits":332,"minimalistic-assert":339}],330:[function(require,module,exports){
 'use strict';
 
 var hash = require('hash.js');
@@ -38752,7 +41029,7 @@ HmacDRBG.prototype.generate = function generate(len, enc, add, addEnc) {
   return utils.encode(res, enc);
 };
 
-},{"hash.js":296,"minimalistic-assert":316,"minimalistic-crypto-utils":317}],309:[function(require,module,exports){
+},{"hash.js":318,"minimalistic-assert":339,"minimalistic-crypto-utils":340}],331:[function(require,module,exports){
 /*! ieee754. BSD-3-Clause License. Feross Aboukhadijeh <https://feross.org/opensource> */
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
@@ -38839,7 +41116,7 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   buffer[offset + i - d] |= s * 128
 }
 
-},{}],310:[function(require,module,exports){
+},{}],332:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -38868,37 +41145,146 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],311:[function(require,module,exports){
-/*!
- * Determine if an object is a Buffer
- *
- * @author   Feross Aboukhadijeh <https://feross.org>
- * @license  MIT
- */
+},{}],333:[function(require,module,exports){
+'use strict';
 
-// The _isBuffer check is for Safari 5-7 support, because it's missing
-// Object.prototype.constructor. Remove this eventually
-module.exports = function (obj) {
-  return obj != null && (isBuffer(obj) || isSlowBuffer(obj) || !!obj._isBuffer)
-}
+var hasToStringTag = require('has-tostringtag/shams')();
+var callBound = require('call-bind/callBound');
 
-function isBuffer (obj) {
-  return !!obj.constructor && typeof obj.constructor.isBuffer === 'function' && obj.constructor.isBuffer(obj)
-}
+var $toString = callBound('Object.prototype.toString');
 
-// For Node v0.10 support. Remove this eventually.
-function isSlowBuffer (obj) {
-  return typeof obj.readFloatLE === 'function' && typeof obj.slice === 'function' && isBuffer(obj.slice(0, 0))
-}
-
-},{}],312:[function(require,module,exports){
-var toString = {}.toString;
-
-module.exports = Array.isArray || function (arr) {
-  return toString.call(arr) == '[object Array]';
+var isStandardArguments = function isArguments(value) {
+	if (hasToStringTag && value && typeof value === 'object' && Symbol.toStringTag in value) {
+		return false;
+	}
+	return $toString(value) === '[object Arguments]';
 };
 
-},{}],313:[function(require,module,exports){
+var isLegacyArguments = function isArguments(value) {
+	if (isStandardArguments(value)) {
+		return true;
+	}
+	return value !== null &&
+		typeof value === 'object' &&
+		typeof value.length === 'number' &&
+		value.length >= 0 &&
+		$toString(value) !== '[object Array]' &&
+		$toString(value.callee) === '[object Function]';
+};
+
+var supportsStandardArguments = (function () {
+	return isStandardArguments(arguments);
+}());
+
+isStandardArguments.isLegacyArguments = isLegacyArguments; // for tests
+
+module.exports = supportsStandardArguments ? isStandardArguments : isLegacyArguments;
+
+},{"call-bind/callBound":252,"has-tostringtag/shams":300}],334:[function(require,module,exports){
+'use strict';
+
+var toStr = Object.prototype.toString;
+var fnToStr = Function.prototype.toString;
+var isFnRegex = /^\s*(?:function)?\*/;
+var hasToStringTag = require('has-tostringtag/shams')();
+var getProto = Object.getPrototypeOf;
+var getGeneratorFunc = function () { // eslint-disable-line consistent-return
+	if (!hasToStringTag) {
+		return false;
+	}
+	try {
+		return Function('return function*() {}')();
+	} catch (e) {
+	}
+};
+var GeneratorFunction;
+
+module.exports = function isGeneratorFunction(fn) {
+	if (typeof fn !== 'function') {
+		return false;
+	}
+	if (isFnRegex.test(fnToStr.call(fn))) {
+		return true;
+	}
+	if (!hasToStringTag) {
+		var str = toStr.call(fn);
+		return str === '[object GeneratorFunction]';
+	}
+	if (!getProto) {
+		return false;
+	}
+	if (typeof GeneratorFunction === 'undefined') {
+		var generatorFunc = getGeneratorFunc();
+		GeneratorFunction = generatorFunc ? getProto(generatorFunc) : false;
+	}
+	return getProto(fn) === GeneratorFunction;
+};
+
+},{"has-tostringtag/shams":300}],335:[function(require,module,exports){
+(function (global){(function (){
+'use strict';
+
+var forEach = require('foreach');
+var availableTypedArrays = require('available-typed-arrays');
+var callBound = require('call-bind/callBound');
+
+var $toString = callBound('Object.prototype.toString');
+var hasToStringTag = require('has-tostringtag/shams')();
+
+var g = typeof globalThis === 'undefined' ? global : globalThis;
+var typedArrays = availableTypedArrays();
+
+var $indexOf = callBound('Array.prototype.indexOf', true) || function indexOf(array, value) {
+	for (var i = 0; i < array.length; i += 1) {
+		if (array[i] === value) {
+			return i;
+		}
+	}
+	return -1;
+};
+var $slice = callBound('String.prototype.slice');
+var toStrTags = {};
+var gOPD = require('es-abstract/helpers/getOwnPropertyDescriptor');
+var getPrototypeOf = Object.getPrototypeOf; // require('getprototypeof');
+if (hasToStringTag && gOPD && getPrototypeOf) {
+	forEach(typedArrays, function (typedArray) {
+		var arr = new g[typedArray]();
+		if (Symbol.toStringTag in arr) {
+			var proto = getPrototypeOf(arr);
+			var descriptor = gOPD(proto, Symbol.toStringTag);
+			if (!descriptor) {
+				var superProto = getPrototypeOf(proto);
+				descriptor = gOPD(superProto, Symbol.toStringTag);
+			}
+			toStrTags[typedArray] = descriptor.get;
+		}
+	});
+}
+
+var tryTypedArrays = function tryAllTypedArrays(value) {
+	var anyTrue = false;
+	forEach(toStrTags, function (getter, typedArray) {
+		if (!anyTrue) {
+			try {
+				anyTrue = getter.call(value) === typedArray;
+			} catch (e) { /**/ }
+		}
+	});
+	return anyTrue;
+};
+
+module.exports = function isTypedArray(value) {
+	if (!value || typeof value !== 'object') { return false; }
+	if (!hasToStringTag || !(Symbol.toStringTag in value)) {
+		var tag = $slice($toString(value), 8, -1);
+		return $indexOf(typedArrays, tag) > -1;
+	}
+	if (!gOPD) { return false; }
+	return tryTypedArrays(value);
+};
+
+}).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"available-typed-arrays":202,"call-bind/callBound":252,"es-abstract/helpers/getOwnPropertyDescriptor":291,"foreach":294,"has-tostringtag/shams":300}],336:[function(require,module,exports){
 'use strict'
 var inherits = require('inherits')
 var HashBase = require('hash-base')
@@ -39046,7 +41432,7 @@ function fnI (a, b, c, d, m, k, s) {
 
 module.exports = MD5
 
-},{"hash-base":280,"inherits":310,"safe-buffer":362}],314:[function(require,module,exports){
+},{"hash-base":302,"inherits":332,"safe-buffer":370}],337:[function(require,module,exports){
 var bn = require('bn.js');
 var brorand = require('brorand');
 
@@ -39163,9 +41549,9 @@ MillerRabin.prototype.getDivisor = function getDivisor(n, k) {
   return false;
 };
 
-},{"bn.js":315,"brorand":194}],315:[function(require,module,exports){
-arguments[4][191][0].apply(exports,arguments)
-},{"buffer":195,"dup":191}],316:[function(require,module,exports){
+},{"bn.js":338,"brorand":205}],338:[function(require,module,exports){
+arguments[4][197][0].apply(exports,arguments)
+},{"buffer":206,"dup":197}],339:[function(require,module,exports){
 module.exports = assert;
 
 function assert(val, msg) {
@@ -39178,7 +41564,7 @@ assert.equal = function assertEqual(l, r, msg) {
     throw new Error(msg || ('Assertion failed: ' + l + ' != ' + r));
 };
 
-},{}],317:[function(require,module,exports){
+},{}],340:[function(require,module,exports){
 'use strict';
 
 var utils = exports;
@@ -39238,7 +41624,99 @@ utils.encode = function encode(arr, enc) {
     return arr;
 };
 
-},{}],318:[function(require,module,exports){
+},{}],341:[function(require,module,exports){
+/*
+object-assign
+(c) Sindre Sorhus
+@license MIT
+*/
+
+'use strict';
+/* eslint-disable no-unused-vars */
+var getOwnPropertySymbols = Object.getOwnPropertySymbols;
+var hasOwnProperty = Object.prototype.hasOwnProperty;
+var propIsEnumerable = Object.prototype.propertyIsEnumerable;
+
+function toObject(val) {
+	if (val === null || val === undefined) {
+		throw new TypeError('Object.assign cannot be called with null or undefined');
+	}
+
+	return Object(val);
+}
+
+function shouldUseNative() {
+	try {
+		if (!Object.assign) {
+			return false;
+		}
+
+		// Detect buggy property enumeration order in older V8 versions.
+
+		// https://bugs.chromium.org/p/v8/issues/detail?id=4118
+		var test1 = new String('abc');  // eslint-disable-line no-new-wrappers
+		test1[5] = 'de';
+		if (Object.getOwnPropertyNames(test1)[0] === '5') {
+			return false;
+		}
+
+		// https://bugs.chromium.org/p/v8/issues/detail?id=3056
+		var test2 = {};
+		for (var i = 0; i < 10; i++) {
+			test2['_' + String.fromCharCode(i)] = i;
+		}
+		var order2 = Object.getOwnPropertyNames(test2).map(function (n) {
+			return test2[n];
+		});
+		if (order2.join('') !== '0123456789') {
+			return false;
+		}
+
+		// https://bugs.chromium.org/p/v8/issues/detail?id=3056
+		var test3 = {};
+		'abcdefghijklmnopqrst'.split('').forEach(function (letter) {
+			test3[letter] = letter;
+		});
+		if (Object.keys(Object.assign({}, test3)).join('') !==
+				'abcdefghijklmnopqrst') {
+			return false;
+		}
+
+		return true;
+	} catch (err) {
+		// We don't expect any of the above to throw, but better to be safe.
+		return false;
+	}
+}
+
+module.exports = shouldUseNative() ? Object.assign : function (target, source) {
+	var from;
+	var to = toObject(target);
+	var symbols;
+
+	for (var s = 1; s < arguments.length; s++) {
+		from = Object(arguments[s]);
+
+		for (var key in from) {
+			if (hasOwnProperty.call(from, key)) {
+				to[key] = from[key];
+			}
+		}
+
+		if (getOwnPropertySymbols) {
+			symbols = getOwnPropertySymbols(from);
+			for (var i = 0; i < symbols.length; i++) {
+				if (propIsEnumerable.call(from, symbols[i])) {
+					to[symbols[i]] = from[symbols[i]];
+				}
+			}
+		}
+	}
+
+	return to;
+};
+
+},{}],342:[function(require,module,exports){
 exports.endianness = function () { return 'LE' };
 
 exports.hostname = function () {
@@ -39289,7 +41767,7 @@ exports.homedir = function () {
 	return '/'
 };
 
-},{}],319:[function(require,module,exports){
+},{}],343:[function(require,module,exports){
 module.exports={"2.16.840.1.101.3.4.1.1": "aes-128-ecb",
 "2.16.840.1.101.3.4.1.2": "aes-128-cbc",
 "2.16.840.1.101.3.4.1.3": "aes-128-ofb",
@@ -39303,7 +41781,7 @@ module.exports={"2.16.840.1.101.3.4.1.1": "aes-128-ecb",
 "2.16.840.1.101.3.4.1.43": "aes-256-ofb",
 "2.16.840.1.101.3.4.1.44": "aes-256-cfb"
 }
-},{}],320:[function(require,module,exports){
+},{}],344:[function(require,module,exports){
 // from https://github.com/indutny/self-signed/blob/gh-pages/lib/asn1.js
 // Fedor, you are amazing.
 'use strict'
@@ -39427,7 +41905,7 @@ exports.signature = asn1.define('signature', function () {
   )
 })
 
-},{"./certificate":321,"asn1.js":177}],321:[function(require,module,exports){
+},{"./certificate":345,"asn1.js":183}],345:[function(require,module,exports){
 // from https://github.com/Rantanen/node-dtls/blob/25a7dc861bda38cfeac93a723500eea4f0ac2e86/Certificate.js
 // thanks to @Rantanen
 
@@ -39518,7 +41996,7 @@ var X509Certificate = asn.define('X509Certificate', function () {
 
 module.exports = X509Certificate
 
-},{"asn1.js":177}],322:[function(require,module,exports){
+},{"asn1.js":183}],346:[function(require,module,exports){
 // adapted from https://github.com/apatil/pemstrip
 var findProc = /Proc-Type: 4,ENCRYPTED[\n\r]+DEK-Info: AES-((?:128)|(?:192)|(?:256))-CBC,([0-9A-H]+)[\n\r]+([0-9A-z\n\r+/=]+)[\n\r]+/m
 var startRegex = /^-----BEGIN ((?:.*? KEY)|CERTIFICATE)-----/m
@@ -39551,7 +42029,7 @@ module.exports = function (okey, password) {
   }
 }
 
-},{"browserify-aes":198,"evp_bytestokey":279,"safe-buffer":362}],323:[function(require,module,exports){
+},{"browserify-aes":209,"evp_bytestokey":293,"safe-buffer":370}],347:[function(require,module,exports){
 var asn1 = require('./asn1')
 var aesid = require('./aesid.json')
 var fixProc = require('./fixProc')
@@ -39660,10 +42138,10 @@ function decrypt (data, password) {
   return Buffer.concat(out)
 }
 
-},{"./aesid.json":319,"./asn1":320,"./fixProc":322,"browserify-aes":198,"pbkdf2":325,"safe-buffer":362}],324:[function(require,module,exports){
+},{"./aesid.json":343,"./asn1":344,"./fixProc":346,"browserify-aes":209,"pbkdf2":349,"safe-buffer":370}],348:[function(require,module,exports){
 (function (process){(function (){
-// .dirname, .basename, and .extname methods are extracted from Node.js v8.11.1,
-// backported and transplited with Babel, with backwards-compat fixes
+// 'path' module extracted from Node.js v8.11.1 (only the posix part)
+// transplited with Babel
 
 // Copyright Joyent, Inc. and other Node contributors.
 //
@@ -39686,291 +42164,518 @@ function decrypt (data, password) {
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-// resolves . and .. elements in a path array with directory names there
-// must be no slashes, empty elements, or device names (c:\) in the array
-// (so also no leading and trailing slashes - it does not distinguish
-// relative and absolute paths)
-function normalizeArray(parts, allowAboveRoot) {
-  // if the path tries to go above the root, `up` ends up > 0
-  var up = 0;
-  for (var i = parts.length - 1; i >= 0; i--) {
-    var last = parts[i];
-    if (last === '.') {
-      parts.splice(i, 1);
-    } else if (last === '..') {
-      parts.splice(i, 1);
-      up++;
-    } else if (up) {
-      parts.splice(i, 1);
-      up--;
-    }
-  }
+'use strict';
 
-  // if the path is allowed to go above the root, restore leading ..s
-  if (allowAboveRoot) {
-    for (; up--; up) {
-      parts.unshift('..');
-    }
+function assertPath(path) {
+  if (typeof path !== 'string') {
+    throw new TypeError('Path must be a string. Received ' + JSON.stringify(path));
   }
-
-  return parts;
 }
 
-// path.resolve([from ...], to)
-// posix version
-exports.resolve = function() {
-  var resolvedPath = '',
-      resolvedAbsolute = false;
-
-  for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
-    var path = (i >= 0) ? arguments[i] : process.cwd();
-
-    // Skip empty and invalid entries
-    if (typeof path !== 'string') {
-      throw new TypeError('Arguments to path.resolve must be strings');
-    } else if (!path) {
-      continue;
-    }
-
-    resolvedPath = path + '/' + resolvedPath;
-    resolvedAbsolute = path.charAt(0) === '/';
-  }
-
-  // At this point the path should be resolved to a full absolute path, but
-  // handle relative paths to be safe (might happen when process.cwd() fails)
-
-  // Normalize the path
-  resolvedPath = normalizeArray(filter(resolvedPath.split('/'), function(p) {
-    return !!p;
-  }), !resolvedAbsolute).join('/');
-
-  return ((resolvedAbsolute ? '/' : '') + resolvedPath) || '.';
-};
-
-// path.normalize(path)
-// posix version
-exports.normalize = function(path) {
-  var isAbsolute = exports.isAbsolute(path),
-      trailingSlash = substr(path, -1) === '/';
-
-  // Normalize the path
-  path = normalizeArray(filter(path.split('/'), function(p) {
-    return !!p;
-  }), !isAbsolute).join('/');
-
-  if (!path && !isAbsolute) {
-    path = '.';
-  }
-  if (path && trailingSlash) {
-    path += '/';
-  }
-
-  return (isAbsolute ? '/' : '') + path;
-};
-
-// posix version
-exports.isAbsolute = function(path) {
-  return path.charAt(0) === '/';
-};
-
-// posix version
-exports.join = function() {
-  var paths = Array.prototype.slice.call(arguments, 0);
-  return exports.normalize(filter(paths, function(p, index) {
-    if (typeof p !== 'string') {
-      throw new TypeError('Arguments to path.join must be strings');
-    }
-    return p;
-  }).join('/'));
-};
-
-
-// path.relative(from, to)
-// posix version
-exports.relative = function(from, to) {
-  from = exports.resolve(from).substr(1);
-  to = exports.resolve(to).substr(1);
-
-  function trim(arr) {
-    var start = 0;
-    for (; start < arr.length; start++) {
-      if (arr[start] !== '') break;
-    }
-
-    var end = arr.length - 1;
-    for (; end >= 0; end--) {
-      if (arr[end] !== '') break;
-    }
-
-    if (start > end) return [];
-    return arr.slice(start, end - start + 1);
-  }
-
-  var fromParts = trim(from.split('/'));
-  var toParts = trim(to.split('/'));
-
-  var length = Math.min(fromParts.length, toParts.length);
-  var samePartsLength = length;
-  for (var i = 0; i < length; i++) {
-    if (fromParts[i] !== toParts[i]) {
-      samePartsLength = i;
+// Resolves . and .. elements in a path with directory names
+function normalizeStringPosix(path, allowAboveRoot) {
+  var res = '';
+  var lastSegmentLength = 0;
+  var lastSlash = -1;
+  var dots = 0;
+  var code;
+  for (var i = 0; i <= path.length; ++i) {
+    if (i < path.length)
+      code = path.charCodeAt(i);
+    else if (code === 47 /*/*/)
       break;
-    }
-  }
-
-  var outputParts = [];
-  for (var i = samePartsLength; i < fromParts.length; i++) {
-    outputParts.push('..');
-  }
-
-  outputParts = outputParts.concat(toParts.slice(samePartsLength));
-
-  return outputParts.join('/');
-};
-
-exports.sep = '/';
-exports.delimiter = ':';
-
-exports.dirname = function (path) {
-  if (typeof path !== 'string') path = path + '';
-  if (path.length === 0) return '.';
-  var code = path.charCodeAt(0);
-  var hasRoot = code === 47 /*/*/;
-  var end = -1;
-  var matchedSlash = true;
-  for (var i = path.length - 1; i >= 1; --i) {
-    code = path.charCodeAt(i);
+    else
+      code = 47 /*/*/;
     if (code === 47 /*/*/) {
-        if (!matchedSlash) {
-          end = i;
-          break;
+      if (lastSlash === i - 1 || dots === 1) {
+        // NOOP
+      } else if (lastSlash !== i - 1 && dots === 2) {
+        if (res.length < 2 || lastSegmentLength !== 2 || res.charCodeAt(res.length - 1) !== 46 /*.*/ || res.charCodeAt(res.length - 2) !== 46 /*.*/) {
+          if (res.length > 2) {
+            var lastSlashIndex = res.lastIndexOf('/');
+            if (lastSlashIndex !== res.length - 1) {
+              if (lastSlashIndex === -1) {
+                res = '';
+                lastSegmentLength = 0;
+              } else {
+                res = res.slice(0, lastSlashIndex);
+                lastSegmentLength = res.length - 1 - res.lastIndexOf('/');
+              }
+              lastSlash = i;
+              dots = 0;
+              continue;
+            }
+          } else if (res.length === 2 || res.length === 1) {
+            res = '';
+            lastSegmentLength = 0;
+            lastSlash = i;
+            dots = 0;
+            continue;
+          }
+        }
+        if (allowAboveRoot) {
+          if (res.length > 0)
+            res += '/..';
+          else
+            res = '..';
+          lastSegmentLength = 2;
         }
       } else {
-      // We saw the first non-path separator
-      matchedSlash = false;
+        if (res.length > 0)
+          res += '/' + path.slice(lastSlash + 1, i);
+        else
+          res = path.slice(lastSlash + 1, i);
+        lastSegmentLength = i - lastSlash - 1;
+      }
+      lastSlash = i;
+      dots = 0;
+    } else if (code === 46 /*.*/ && dots !== -1) {
+      ++dots;
+    } else {
+      dots = -1;
     }
   }
-
-  if (end === -1) return hasRoot ? '/' : '.';
-  if (hasRoot && end === 1) {
-    // return '//';
-    // Backwards-compat fix:
-    return '/';
-  }
-  return path.slice(0, end);
-};
-
-function basename(path) {
-  if (typeof path !== 'string') path = path + '';
-
-  var start = 0;
-  var end = -1;
-  var matchedSlash = true;
-  var i;
-
-  for (i = path.length - 1; i >= 0; --i) {
-    if (path.charCodeAt(i) === 47 /*/*/) {
-        // If we reached a path separator that was not part of a set of path
-        // separators at the end of the string, stop now
-        if (!matchedSlash) {
-          start = i + 1;
-          break;
-        }
-      } else if (end === -1) {
-      // We saw the first non-path separator, mark this as the end of our
-      // path component
-      matchedSlash = false;
-      end = i + 1;
-    }
-  }
-
-  if (end === -1) return '';
-  return path.slice(start, end);
+  return res;
 }
 
-// Uses a mixed approach for backwards-compatibility, as ext behavior changed
-// in new Node.js versions, so only basename() above is backported here
-exports.basename = function (path, ext) {
-  var f = basename(path);
-  if (ext && f.substr(-1 * ext.length) === ext) {
-    f = f.substr(0, f.length - ext.length);
+function _format(sep, pathObject) {
+  var dir = pathObject.dir || pathObject.root;
+  var base = pathObject.base || (pathObject.name || '') + (pathObject.ext || '');
+  if (!dir) {
+    return base;
   }
-  return f;
-};
+  if (dir === pathObject.root) {
+    return dir + base;
+  }
+  return dir + sep + base;
+}
 
-exports.extname = function (path) {
-  if (typeof path !== 'string') path = path + '';
-  var startDot = -1;
-  var startPart = 0;
-  var end = -1;
-  var matchedSlash = true;
-  // Track the state of characters (if any) we see before our first dot and
-  // after any path separator we find
-  var preDotState = 0;
-  for (var i = path.length - 1; i >= 0; --i) {
-    var code = path.charCodeAt(i);
-    if (code === 47 /*/*/) {
-        // If we reached a path separator that was not part of a set of path
-        // separators at the end of the string, stop now
-        if (!matchedSlash) {
-          startPart = i + 1;
-          break;
-        }
+var posix = {
+  // path.resolve([from ...], to)
+  resolve: function resolve() {
+    var resolvedPath = '';
+    var resolvedAbsolute = false;
+    var cwd;
+
+    for (var i = arguments.length - 1; i >= -1 && !resolvedAbsolute; i--) {
+      var path;
+      if (i >= 0)
+        path = arguments[i];
+      else {
+        if (cwd === undefined)
+          cwd = process.cwd();
+        path = cwd;
+      }
+
+      assertPath(path);
+
+      // Skip empty entries
+      if (path.length === 0) {
         continue;
       }
-    if (end === -1) {
-      // We saw the first non-path separator, mark this as the end of our
-      // extension
-      matchedSlash = false;
-      end = i + 1;
-    }
-    if (code === 46 /*.*/) {
-        // If this is our first dot, mark it as the start of our extension
-        if (startDot === -1)
-          startDot = i;
-        else if (preDotState !== 1)
-          preDotState = 1;
-    } else if (startDot !== -1) {
-      // We saw a non-dot and non-path separator before our dot, so we should
-      // have a good chance at having a non-empty extension
-      preDotState = -1;
-    }
-  }
 
-  if (startDot === -1 || end === -1 ||
-      // We saw a non-dot character immediately before the dot
-      preDotState === 0 ||
-      // The (right-most) trimmed path component is exactly '..'
-      preDotState === 1 && startDot === end - 1 && startDot === startPart + 1) {
-    return '';
-  }
-  return path.slice(startDot, end);
+      resolvedPath = path + '/' + resolvedPath;
+      resolvedAbsolute = path.charCodeAt(0) === 47 /*/*/;
+    }
+
+    // At this point the path should be resolved to a full absolute path, but
+    // handle relative paths to be safe (might happen when process.cwd() fails)
+
+    // Normalize the path
+    resolvedPath = normalizeStringPosix(resolvedPath, !resolvedAbsolute);
+
+    if (resolvedAbsolute) {
+      if (resolvedPath.length > 0)
+        return '/' + resolvedPath;
+      else
+        return '/';
+    } else if (resolvedPath.length > 0) {
+      return resolvedPath;
+    } else {
+      return '.';
+    }
+  },
+
+  normalize: function normalize(path) {
+    assertPath(path);
+
+    if (path.length === 0) return '.';
+
+    var isAbsolute = path.charCodeAt(0) === 47 /*/*/;
+    var trailingSeparator = path.charCodeAt(path.length - 1) === 47 /*/*/;
+
+    // Normalize the path
+    path = normalizeStringPosix(path, !isAbsolute);
+
+    if (path.length === 0 && !isAbsolute) path = '.';
+    if (path.length > 0 && trailingSeparator) path += '/';
+
+    if (isAbsolute) return '/' + path;
+    return path;
+  },
+
+  isAbsolute: function isAbsolute(path) {
+    assertPath(path);
+    return path.length > 0 && path.charCodeAt(0) === 47 /*/*/;
+  },
+
+  join: function join() {
+    if (arguments.length === 0)
+      return '.';
+    var joined;
+    for (var i = 0; i < arguments.length; ++i) {
+      var arg = arguments[i];
+      assertPath(arg);
+      if (arg.length > 0) {
+        if (joined === undefined)
+          joined = arg;
+        else
+          joined += '/' + arg;
+      }
+    }
+    if (joined === undefined)
+      return '.';
+    return posix.normalize(joined);
+  },
+
+  relative: function relative(from, to) {
+    assertPath(from);
+    assertPath(to);
+
+    if (from === to) return '';
+
+    from = posix.resolve(from);
+    to = posix.resolve(to);
+
+    if (from === to) return '';
+
+    // Trim any leading backslashes
+    var fromStart = 1;
+    for (; fromStart < from.length; ++fromStart) {
+      if (from.charCodeAt(fromStart) !== 47 /*/*/)
+        break;
+    }
+    var fromEnd = from.length;
+    var fromLen = fromEnd - fromStart;
+
+    // Trim any leading backslashes
+    var toStart = 1;
+    for (; toStart < to.length; ++toStart) {
+      if (to.charCodeAt(toStart) !== 47 /*/*/)
+        break;
+    }
+    var toEnd = to.length;
+    var toLen = toEnd - toStart;
+
+    // Compare paths to find the longest common path from root
+    var length = fromLen < toLen ? fromLen : toLen;
+    var lastCommonSep = -1;
+    var i = 0;
+    for (; i <= length; ++i) {
+      if (i === length) {
+        if (toLen > length) {
+          if (to.charCodeAt(toStart + i) === 47 /*/*/) {
+            // We get here if `from` is the exact base path for `to`.
+            // For example: from='/foo/bar'; to='/foo/bar/baz'
+            return to.slice(toStart + i + 1);
+          } else if (i === 0) {
+            // We get here if `from` is the root
+            // For example: from='/'; to='/foo'
+            return to.slice(toStart + i);
+          }
+        } else if (fromLen > length) {
+          if (from.charCodeAt(fromStart + i) === 47 /*/*/) {
+            // We get here if `to` is the exact base path for `from`.
+            // For example: from='/foo/bar/baz'; to='/foo/bar'
+            lastCommonSep = i;
+          } else if (i === 0) {
+            // We get here if `to` is the root.
+            // For example: from='/foo'; to='/'
+            lastCommonSep = 0;
+          }
+        }
+        break;
+      }
+      var fromCode = from.charCodeAt(fromStart + i);
+      var toCode = to.charCodeAt(toStart + i);
+      if (fromCode !== toCode)
+        break;
+      else if (fromCode === 47 /*/*/)
+        lastCommonSep = i;
+    }
+
+    var out = '';
+    // Generate the relative path based on the path difference between `to`
+    // and `from`
+    for (i = fromStart + lastCommonSep + 1; i <= fromEnd; ++i) {
+      if (i === fromEnd || from.charCodeAt(i) === 47 /*/*/) {
+        if (out.length === 0)
+          out += '..';
+        else
+          out += '/..';
+      }
+    }
+
+    // Lastly, append the rest of the destination (`to`) path that comes after
+    // the common path parts
+    if (out.length > 0)
+      return out + to.slice(toStart + lastCommonSep);
+    else {
+      toStart += lastCommonSep;
+      if (to.charCodeAt(toStart) === 47 /*/*/)
+        ++toStart;
+      return to.slice(toStart);
+    }
+  },
+
+  _makeLong: function _makeLong(path) {
+    return path;
+  },
+
+  dirname: function dirname(path) {
+    assertPath(path);
+    if (path.length === 0) return '.';
+    var code = path.charCodeAt(0);
+    var hasRoot = code === 47 /*/*/;
+    var end = -1;
+    var matchedSlash = true;
+    for (var i = path.length - 1; i >= 1; --i) {
+      code = path.charCodeAt(i);
+      if (code === 47 /*/*/) {
+          if (!matchedSlash) {
+            end = i;
+            break;
+          }
+        } else {
+        // We saw the first non-path separator
+        matchedSlash = false;
+      }
+    }
+
+    if (end === -1) return hasRoot ? '/' : '.';
+    if (hasRoot && end === 1) return '//';
+    return path.slice(0, end);
+  },
+
+  basename: function basename(path, ext) {
+    if (ext !== undefined && typeof ext !== 'string') throw new TypeError('"ext" argument must be a string');
+    assertPath(path);
+
+    var start = 0;
+    var end = -1;
+    var matchedSlash = true;
+    var i;
+
+    if (ext !== undefined && ext.length > 0 && ext.length <= path.length) {
+      if (ext.length === path.length && ext === path) return '';
+      var extIdx = ext.length - 1;
+      var firstNonSlashEnd = -1;
+      for (i = path.length - 1; i >= 0; --i) {
+        var code = path.charCodeAt(i);
+        if (code === 47 /*/*/) {
+            // If we reached a path separator that was not part of a set of path
+            // separators at the end of the string, stop now
+            if (!matchedSlash) {
+              start = i + 1;
+              break;
+            }
+          } else {
+          if (firstNonSlashEnd === -1) {
+            // We saw the first non-path separator, remember this index in case
+            // we need it if the extension ends up not matching
+            matchedSlash = false;
+            firstNonSlashEnd = i + 1;
+          }
+          if (extIdx >= 0) {
+            // Try to match the explicit extension
+            if (code === ext.charCodeAt(extIdx)) {
+              if (--extIdx === -1) {
+                // We matched the extension, so mark this as the end of our path
+                // component
+                end = i;
+              }
+            } else {
+              // Extension does not match, so our result is the entire path
+              // component
+              extIdx = -1;
+              end = firstNonSlashEnd;
+            }
+          }
+        }
+      }
+
+      if (start === end) end = firstNonSlashEnd;else if (end === -1) end = path.length;
+      return path.slice(start, end);
+    } else {
+      for (i = path.length - 1; i >= 0; --i) {
+        if (path.charCodeAt(i) === 47 /*/*/) {
+            // If we reached a path separator that was not part of a set of path
+            // separators at the end of the string, stop now
+            if (!matchedSlash) {
+              start = i + 1;
+              break;
+            }
+          } else if (end === -1) {
+          // We saw the first non-path separator, mark this as the end of our
+          // path component
+          matchedSlash = false;
+          end = i + 1;
+        }
+      }
+
+      if (end === -1) return '';
+      return path.slice(start, end);
+    }
+  },
+
+  extname: function extname(path) {
+    assertPath(path);
+    var startDot = -1;
+    var startPart = 0;
+    var end = -1;
+    var matchedSlash = true;
+    // Track the state of characters (if any) we see before our first dot and
+    // after any path separator we find
+    var preDotState = 0;
+    for (var i = path.length - 1; i >= 0; --i) {
+      var code = path.charCodeAt(i);
+      if (code === 47 /*/*/) {
+          // If we reached a path separator that was not part of a set of path
+          // separators at the end of the string, stop now
+          if (!matchedSlash) {
+            startPart = i + 1;
+            break;
+          }
+          continue;
+        }
+      if (end === -1) {
+        // We saw the first non-path separator, mark this as the end of our
+        // extension
+        matchedSlash = false;
+        end = i + 1;
+      }
+      if (code === 46 /*.*/) {
+          // If this is our first dot, mark it as the start of our extension
+          if (startDot === -1)
+            startDot = i;
+          else if (preDotState !== 1)
+            preDotState = 1;
+      } else if (startDot !== -1) {
+        // We saw a non-dot and non-path separator before our dot, so we should
+        // have a good chance at having a non-empty extension
+        preDotState = -1;
+      }
+    }
+
+    if (startDot === -1 || end === -1 ||
+        // We saw a non-dot character immediately before the dot
+        preDotState === 0 ||
+        // The (right-most) trimmed path component is exactly '..'
+        preDotState === 1 && startDot === end - 1 && startDot === startPart + 1) {
+      return '';
+    }
+    return path.slice(startDot, end);
+  },
+
+  format: function format(pathObject) {
+    if (pathObject === null || typeof pathObject !== 'object') {
+      throw new TypeError('The "pathObject" argument must be of type Object. Received type ' + typeof pathObject);
+    }
+    return _format('/', pathObject);
+  },
+
+  parse: function parse(path) {
+    assertPath(path);
+
+    var ret = { root: '', dir: '', base: '', ext: '', name: '' };
+    if (path.length === 0) return ret;
+    var code = path.charCodeAt(0);
+    var isAbsolute = code === 47 /*/*/;
+    var start;
+    if (isAbsolute) {
+      ret.root = '/';
+      start = 1;
+    } else {
+      start = 0;
+    }
+    var startDot = -1;
+    var startPart = 0;
+    var end = -1;
+    var matchedSlash = true;
+    var i = path.length - 1;
+
+    // Track the state of characters (if any) we see before our first dot and
+    // after any path separator we find
+    var preDotState = 0;
+
+    // Get non-dir info
+    for (; i >= start; --i) {
+      code = path.charCodeAt(i);
+      if (code === 47 /*/*/) {
+          // If we reached a path separator that was not part of a set of path
+          // separators at the end of the string, stop now
+          if (!matchedSlash) {
+            startPart = i + 1;
+            break;
+          }
+          continue;
+        }
+      if (end === -1) {
+        // We saw the first non-path separator, mark this as the end of our
+        // extension
+        matchedSlash = false;
+        end = i + 1;
+      }
+      if (code === 46 /*.*/) {
+          // If this is our first dot, mark it as the start of our extension
+          if (startDot === -1) startDot = i;else if (preDotState !== 1) preDotState = 1;
+        } else if (startDot !== -1) {
+        // We saw a non-dot and non-path separator before our dot, so we should
+        // have a good chance at having a non-empty extension
+        preDotState = -1;
+      }
+    }
+
+    if (startDot === -1 || end === -1 ||
+    // We saw a non-dot character immediately before the dot
+    preDotState === 0 ||
+    // The (right-most) trimmed path component is exactly '..'
+    preDotState === 1 && startDot === end - 1 && startDot === startPart + 1) {
+      if (end !== -1) {
+        if (startPart === 0 && isAbsolute) ret.base = ret.name = path.slice(1, end);else ret.base = ret.name = path.slice(startPart, end);
+      }
+    } else {
+      if (startPart === 0 && isAbsolute) {
+        ret.name = path.slice(1, startDot);
+        ret.base = path.slice(1, end);
+      } else {
+        ret.name = path.slice(startPart, startDot);
+        ret.base = path.slice(startPart, end);
+      }
+      ret.ext = path.slice(startDot, end);
+    }
+
+    if (startPart > 0) ret.dir = path.slice(0, startPart - 1);else if (isAbsolute) ret.dir = '/';
+
+    return ret;
+  },
+
+  sep: '/',
+  delimiter: ':',
+  win32: null,
+  posix: null
 };
 
-function filter (xs, f) {
-    if (xs.filter) return xs.filter(f);
-    var res = [];
-    for (var i = 0; i < xs.length; i++) {
-        if (f(xs[i], i, xs)) res.push(xs[i]);
-    }
-    return res;
-}
+posix.posix = posix;
 
-// String.prototype.substr - negative index don't work in IE8
-var substr = 'ab'.substr(-1) === 'b'
-    ? function (str, start, len) { return str.substr(start, len) }
-    : function (str, start, len) {
-        if (start < 0) start = str.length + start;
-        return str.substr(start, len);
-    }
-;
+module.exports = posix;
 
 }).call(this)}).call(this,require('_process'))
-},{"_process":332}],325:[function(require,module,exports){
+},{"_process":355}],349:[function(require,module,exports){
 exports.pbkdf2 = require('./lib/async')
 exports.pbkdf2Sync = require('./lib/sync')
 
-},{"./lib/async":326,"./lib/sync":329}],326:[function(require,module,exports){
+},{"./lib/async":350,"./lib/sync":353}],350:[function(require,module,exports){
 (function (global){(function (){
 var Buffer = require('safe-buffer').Buffer
 
@@ -40092,7 +42797,7 @@ module.exports = function (password, salt, iterations, keylen, digest, callback)
 }
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./default-encoding":327,"./precondition":328,"./sync":329,"./to-buffer":330,"safe-buffer":362}],327:[function(require,module,exports){
+},{"./default-encoding":351,"./precondition":352,"./sync":353,"./to-buffer":354,"safe-buffer":370}],351:[function(require,module,exports){
 (function (process,global){(function (){
 var defaultEncoding
 /* istanbul ignore next */
@@ -40108,7 +42813,7 @@ if (global.process && global.process.browser) {
 module.exports = defaultEncoding
 
 }).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":332}],328:[function(require,module,exports){
+},{"_process":355}],352:[function(require,module,exports){
 var MAX_ALLOC = Math.pow(2, 30) - 1 // default in iojs
 
 module.exports = function (iterations, keylen) {
@@ -40129,7 +42834,7 @@ module.exports = function (iterations, keylen) {
   }
 }
 
-},{}],329:[function(require,module,exports){
+},{}],353:[function(require,module,exports){
 var md5 = require('create-hash/md5')
 var RIPEMD160 = require('ripemd160')
 var sha = require('sha.js')
@@ -40236,7 +42941,7 @@ function pbkdf2 (password, salt, iterations, keylen, digest) {
 
 module.exports = pbkdf2
 
-},{"./default-encoding":327,"./precondition":328,"./to-buffer":330,"create-hash/md5":246,"ripemd160":361,"safe-buffer":362,"sha.js":365}],330:[function(require,module,exports){
+},{"./default-encoding":351,"./precondition":352,"./to-buffer":354,"create-hash/md5":259,"ripemd160":369,"safe-buffer":370,"sha.js":373}],354:[function(require,module,exports){
 var Buffer = require('safe-buffer').Buffer
 
 module.exports = function (thing, encoding, name) {
@@ -40251,56 +42956,7 @@ module.exports = function (thing, encoding, name) {
   }
 }
 
-},{"safe-buffer":362}],331:[function(require,module,exports){
-(function (process){(function (){
-'use strict';
-
-if (typeof process === 'undefined' ||
-    !process.version ||
-    process.version.indexOf('v0.') === 0 ||
-    process.version.indexOf('v1.') === 0 && process.version.indexOf('v1.8.') !== 0) {
-  module.exports = { nextTick: nextTick };
-} else {
-  module.exports = process
-}
-
-function nextTick(fn, arg1, arg2, arg3) {
-  if (typeof fn !== 'function') {
-    throw new TypeError('"callback" argument must be a function');
-  }
-  var len = arguments.length;
-  var args, i;
-  switch (len) {
-  case 0:
-  case 1:
-    return process.nextTick(fn);
-  case 2:
-    return process.nextTick(function afterTickOne() {
-      fn.call(null, arg1);
-    });
-  case 3:
-    return process.nextTick(function afterTickTwo() {
-      fn.call(null, arg1, arg2);
-    });
-  case 4:
-    return process.nextTick(function afterTickThree() {
-      fn.call(null, arg1, arg2, arg3);
-    });
-  default:
-    args = new Array(len - 1);
-    i = 0;
-    while (i < args.length) {
-      args[i++] = arguments[i];
-    }
-    return process.nextTick(function afterTick() {
-      fn.apply(null, args);
-    });
-  }
-}
-
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332}],332:[function(require,module,exports){
+},{"safe-buffer":370}],355:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -40486,7 +43142,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],333:[function(require,module,exports){
+},{}],356:[function(require,module,exports){
 exports.publicEncrypt = require('./publicEncrypt')
 exports.privateDecrypt = require('./privateDecrypt')
 
@@ -40498,7 +43154,7 @@ exports.publicDecrypt = function publicDecrypt (key, buf) {
   return exports.privateDecrypt(key, buf, true)
 }
 
-},{"./privateDecrypt":336,"./publicEncrypt":337}],334:[function(require,module,exports){
+},{"./privateDecrypt":359,"./publicEncrypt":360}],357:[function(require,module,exports){
 var createHash = require('create-hash')
 var Buffer = require('safe-buffer').Buffer
 
@@ -40519,9 +43175,9 @@ function i2ops (c) {
   return out
 }
 
-},{"create-hash":245,"safe-buffer":362}],335:[function(require,module,exports){
-arguments[4][191][0].apply(exports,arguments)
-},{"buffer":195,"dup":191}],336:[function(require,module,exports){
+},{"create-hash":258,"safe-buffer":370}],358:[function(require,module,exports){
+arguments[4][197][0].apply(exports,arguments)
+},{"buffer":206,"dup":197}],359:[function(require,module,exports){
 var parseKeys = require('parse-asn1')
 var mgf = require('./mgf')
 var xor = require('./xor')
@@ -40628,7 +43284,7 @@ function compare (a, b) {
   return dif
 }
 
-},{"./mgf":334,"./withPublic":338,"./xor":339,"bn.js":335,"browserify-rsa":216,"create-hash":245,"parse-asn1":323,"safe-buffer":362}],337:[function(require,module,exports){
+},{"./mgf":357,"./withPublic":361,"./xor":362,"bn.js":358,"browserify-rsa":227,"create-hash":258,"parse-asn1":347,"safe-buffer":370}],360:[function(require,module,exports){
 var parseKeys = require('parse-asn1')
 var randomBytes = require('randombytes')
 var createHash = require('create-hash')
@@ -40718,7 +43374,7 @@ function nonZero (len) {
   return out
 }
 
-},{"./mgf":334,"./withPublic":338,"./xor":339,"bn.js":335,"browserify-rsa":216,"create-hash":245,"parse-asn1":323,"randombytes":344,"safe-buffer":362}],338:[function(require,module,exports){
+},{"./mgf":357,"./withPublic":361,"./xor":362,"bn.js":358,"browserify-rsa":227,"create-hash":258,"parse-asn1":347,"randombytes":367,"safe-buffer":370}],361:[function(require,module,exports){
 var BN = require('bn.js')
 var Buffer = require('safe-buffer').Buffer
 
@@ -40732,7 +43388,7 @@ function withPublic (paddedMsg, key) {
 
 module.exports = withPublic
 
-},{"bn.js":335,"safe-buffer":362}],339:[function(require,module,exports){
+},{"bn.js":358,"safe-buffer":370}],362:[function(require,module,exports){
 module.exports = function xor (a, b) {
   var len = a.length
   var i = -1
@@ -40742,7 +43398,7 @@ module.exports = function xor (a, b) {
   return a
 }
 
-},{}],340:[function(require,module,exports){
+},{}],363:[function(require,module,exports){
 (function (global){(function (){
 /*! https://mths.be/punycode v1.4.1 by @mathias */
 ;(function(root) {
@@ -41279,7 +43935,7 @@ module.exports = function xor (a, b) {
 }(this));
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],341:[function(require,module,exports){
+},{}],364:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -41365,7 +44021,7 @@ var isArray = Array.isArray || function (xs) {
   return Object.prototype.toString.call(xs) === '[object Array]';
 };
 
-},{}],342:[function(require,module,exports){
+},{}],365:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -41452,13 +44108,13 @@ var objectKeys = Object.keys || function (obj) {
   return res;
 };
 
-},{}],343:[function(require,module,exports){
+},{}],366:[function(require,module,exports){
 'use strict';
 
 exports.decode = exports.parse = require('./decode');
 exports.encode = exports.stringify = require('./encode');
 
-},{"./decode":341,"./encode":342}],344:[function(require,module,exports){
+},{"./decode":364,"./encode":365}],367:[function(require,module,exports){
 (function (process,global){(function (){
 'use strict'
 
@@ -41512,7 +44168,7 @@ function randomBytes (size, cb) {
 }
 
 }).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":332,"safe-buffer":362}],345:[function(require,module,exports){
+},{"_process":355,"safe-buffer":370}],368:[function(require,module,exports){
 (function (process,global){(function (){
 'use strict'
 
@@ -41624,2274 +44280,173 @@ function randomFillSync (buf, offset, size) {
 }
 
 }).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":332,"randombytes":344,"safe-buffer":362}],346:[function(require,module,exports){
-module.exports = require('./lib/_stream_duplex.js');
+},{"_process":355,"randombytes":367,"safe-buffer":370}],369:[function(require,module,exports){
+'use strict'
+var Buffer = require('buffer').Buffer
+var inherits = require('inherits')
+var HashBase = require('hash-base')
 
-},{"./lib/_stream_duplex.js":347}],347:[function(require,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
+var ARRAY16 = new Array(16)
 
-// a duplex stream is just a stream that is both readable and writable.
-// Since JS doesn't have multiple prototypal inheritance, this class
-// prototypally inherits from Readable, and then parasitically from
-// Writable.
+var zl = [
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+  7, 4, 13, 1, 10, 6, 15, 3, 12, 0, 9, 5, 2, 14, 11, 8,
+  3, 10, 14, 4, 9, 15, 8, 1, 2, 7, 0, 6, 13, 11, 5, 12,
+  1, 9, 11, 10, 0, 8, 12, 4, 13, 3, 7, 15, 14, 5, 6, 2,
+  4, 0, 5, 9, 7, 12, 2, 10, 14, 1, 3, 8, 11, 6, 15, 13
+]
 
-'use strict';
+var zr = [
+  5, 14, 7, 0, 9, 2, 11, 4, 13, 6, 15, 8, 1, 10, 3, 12,
+  6, 11, 3, 7, 0, 13, 5, 10, 14, 15, 8, 12, 4, 9, 1, 2,
+  15, 5, 1, 3, 7, 14, 6, 9, 11, 8, 12, 2, 10, 0, 4, 13,
+  8, 6, 4, 1, 3, 11, 15, 0, 5, 12, 2, 13, 9, 7, 10, 14,
+  12, 15, 10, 4, 1, 5, 8, 7, 6, 2, 13, 14, 0, 3, 9, 11
+]
 
-/*<replacement>*/
+var sl = [
+  11, 14, 15, 12, 5, 8, 7, 9, 11, 13, 14, 15, 6, 7, 9, 8,
+  7, 6, 8, 13, 11, 9, 7, 15, 7, 12, 15, 9, 11, 7, 13, 12,
+  11, 13, 6, 7, 14, 9, 13, 15, 14, 8, 13, 6, 5, 12, 7, 5,
+  11, 12, 14, 15, 14, 15, 9, 8, 9, 14, 5, 6, 8, 6, 5, 12,
+  9, 15, 5, 11, 6, 8, 13, 12, 5, 12, 13, 14, 11, 8, 5, 6
+]
 
-var pna = require('process-nextick-args');
-/*</replacement>*/
+var sr = [
+  8, 9, 9, 11, 13, 15, 15, 5, 7, 7, 8, 11, 14, 14, 12, 6,
+  9, 13, 15, 7, 12, 8, 9, 11, 7, 7, 12, 7, 6, 15, 13, 11,
+  9, 7, 15, 11, 8, 6, 6, 14, 12, 13, 5, 14, 13, 13, 7, 5,
+  15, 5, 8, 11, 14, 14, 6, 14, 6, 9, 12, 9, 12, 5, 15, 8,
+  8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11
+]
 
-/*<replacement>*/
-var objectKeys = Object.keys || function (obj) {
-  var keys = [];
-  for (var key in obj) {
-    keys.push(key);
-  }return keys;
-};
-/*</replacement>*/
+var hl = [0x00000000, 0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xa953fd4e]
+var hr = [0x50a28be6, 0x5c4dd124, 0x6d703ef3, 0x7a6d76e9, 0x00000000]
 
-module.exports = Duplex;
+function RIPEMD160 () {
+  HashBase.call(this, 64)
 
-/*<replacement>*/
-var util = Object.create(require('core-util-is'));
-util.inherits = require('inherits');
-/*</replacement>*/
-
-var Readable = require('./_stream_readable');
-var Writable = require('./_stream_writable');
-
-util.inherits(Duplex, Readable);
-
-{
-  // avoid scope creep, the keys array can then be collected
-  var keys = objectKeys(Writable.prototype);
-  for (var v = 0; v < keys.length; v++) {
-    var method = keys[v];
-    if (!Duplex.prototype[method]) Duplex.prototype[method] = Writable.prototype[method];
-  }
+  // state
+  this._a = 0x67452301
+  this._b = 0xefcdab89
+  this._c = 0x98badcfe
+  this._d = 0x10325476
+  this._e = 0xc3d2e1f0
 }
 
-function Duplex(options) {
-  if (!(this instanceof Duplex)) return new Duplex(options);
+inherits(RIPEMD160, HashBase)
 
-  Readable.call(this, options);
-  Writable.call(this, options);
+RIPEMD160.prototype._update = function () {
+  var words = ARRAY16
+  for (var j = 0; j < 16; ++j) words[j] = this._block.readInt32LE(j * 4)
 
-  if (options && options.readable === false) this.readable = false;
+  var al = this._a | 0
+  var bl = this._b | 0
+  var cl = this._c | 0
+  var dl = this._d | 0
+  var el = this._e | 0
 
-  if (options && options.writable === false) this.writable = false;
+  var ar = this._a | 0
+  var br = this._b | 0
+  var cr = this._c | 0
+  var dr = this._d | 0
+  var er = this._e | 0
 
-  this.allowHalfOpen = true;
-  if (options && options.allowHalfOpen === false) this.allowHalfOpen = false;
-
-  this.once('end', onend);
-}
-
-Object.defineProperty(Duplex.prototype, 'writableHighWaterMark', {
-  // making it explicit this property is not enumerable
-  // because otherwise some prototype manipulation in
-  // userland will fail
-  enumerable: false,
-  get: function () {
-    return this._writableState.highWaterMark;
-  }
-});
-
-// the no-half-open enforcer
-function onend() {
-  // if we allow half-open state, or if the writable side ended,
-  // then we're ok.
-  if (this.allowHalfOpen || this._writableState.ended) return;
-
-  // no more data can be written.
-  // But allow more writes to happen in this tick.
-  pna.nextTick(onEndNT, this);
-}
-
-function onEndNT(self) {
-  self.end();
-}
-
-Object.defineProperty(Duplex.prototype, 'destroyed', {
-  get: function () {
-    if (this._readableState === undefined || this._writableState === undefined) {
-      return false;
-    }
-    return this._readableState.destroyed && this._writableState.destroyed;
-  },
-  set: function (value) {
-    // we ignore the value if the stream
-    // has not been initialized yet
-    if (this._readableState === undefined || this._writableState === undefined) {
-      return;
+  // computation
+  for (var i = 0; i < 80; i += 1) {
+    var tl
+    var tr
+    if (i < 16) {
+      tl = fn1(al, bl, cl, dl, el, words[zl[i]], hl[0], sl[i])
+      tr = fn5(ar, br, cr, dr, er, words[zr[i]], hr[0], sr[i])
+    } else if (i < 32) {
+      tl = fn2(al, bl, cl, dl, el, words[zl[i]], hl[1], sl[i])
+      tr = fn4(ar, br, cr, dr, er, words[zr[i]], hr[1], sr[i])
+    } else if (i < 48) {
+      tl = fn3(al, bl, cl, dl, el, words[zl[i]], hl[2], sl[i])
+      tr = fn3(ar, br, cr, dr, er, words[zr[i]], hr[2], sr[i])
+    } else if (i < 64) {
+      tl = fn4(al, bl, cl, dl, el, words[zl[i]], hl[3], sl[i])
+      tr = fn2(ar, br, cr, dr, er, words[zr[i]], hr[3], sr[i])
+    } else { // if (i<80) {
+      tl = fn5(al, bl, cl, dl, el, words[zl[i]], hl[4], sl[i])
+      tr = fn1(ar, br, cr, dr, er, words[zr[i]], hr[4], sr[i])
     }
 
-    // backward compatibility, the user is explicitly
-    // managing destroyed
-    this._readableState.destroyed = value;
-    this._writableState.destroyed = value;
+    al = el
+    el = dl
+    dl = rotl(cl, 10)
+    cl = bl
+    bl = tl
+
+    ar = er
+    er = dr
+    dr = rotl(cr, 10)
+    cr = br
+    br = tr
   }
-});
 
-Duplex.prototype._destroy = function (err, cb) {
-  this.push(null);
-  this.end();
-
-  pna.nextTick(cb, err);
-};
-},{"./_stream_readable":349,"./_stream_writable":351,"core-util-is":242,"inherits":310,"process-nextick-args":331}],348:[function(require,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// a passthrough stream.
-// basically just the most minimal sort of Transform stream.
-// Every written chunk gets output as-is.
-
-'use strict';
-
-module.exports = PassThrough;
-
-var Transform = require('./_stream_transform');
-
-/*<replacement>*/
-var util = Object.create(require('core-util-is'));
-util.inherits = require('inherits');
-/*</replacement>*/
-
-util.inherits(PassThrough, Transform);
-
-function PassThrough(options) {
-  if (!(this instanceof PassThrough)) return new PassThrough(options);
-
-  Transform.call(this, options);
+  // update state
+  var t = (this._b + cl + dr) | 0
+  this._b = (this._c + dl + er) | 0
+  this._c = (this._d + el + ar) | 0
+  this._d = (this._e + al + br) | 0
+  this._e = (this._a + bl + cr) | 0
+  this._a = t
 }
 
-PassThrough.prototype._transform = function (chunk, encoding, cb) {
-  cb(null, chunk);
-};
-},{"./_stream_transform":350,"core-util-is":242,"inherits":310}],349:[function(require,module,exports){
-(function (process,global){(function (){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
+RIPEMD160.prototype._digest = function () {
+  // create padding and handle blocks
+  this._block[this._blockOffset++] = 0x80
+  if (this._blockOffset > 56) {
+    this._block.fill(0, this._blockOffset, 64)
+    this._update()
+    this._blockOffset = 0
+  }
 
-'use strict';
+  this._block.fill(0, this._blockOffset, 56)
+  this._block.writeUInt32LE(this._length[0], 56)
+  this._block.writeUInt32LE(this._length[1], 60)
+  this._update()
 
-/*<replacement>*/
-
-var pna = require('process-nextick-args');
-/*</replacement>*/
-
-module.exports = Readable;
-
-/*<replacement>*/
-var isArray = require('isarray');
-/*</replacement>*/
-
-/*<replacement>*/
-var Duplex;
-/*</replacement>*/
-
-Readable.ReadableState = ReadableState;
-
-/*<replacement>*/
-var EE = require('events').EventEmitter;
-
-var EElistenerCount = function (emitter, type) {
-  return emitter.listeners(type).length;
-};
-/*</replacement>*/
-
-/*<replacement>*/
-var Stream = require('./internal/streams/stream');
-/*</replacement>*/
-
-/*<replacement>*/
-
-var Buffer = require('safe-buffer').Buffer;
-var OurUint8Array = global.Uint8Array || function () {};
-function _uint8ArrayToBuffer(chunk) {
-  return Buffer.from(chunk);
-}
-function _isUint8Array(obj) {
-  return Buffer.isBuffer(obj) || obj instanceof OurUint8Array;
+  // produce result
+  var buffer = Buffer.alloc ? Buffer.alloc(20) : new Buffer(20)
+  buffer.writeInt32LE(this._a, 0)
+  buffer.writeInt32LE(this._b, 4)
+  buffer.writeInt32LE(this._c, 8)
+  buffer.writeInt32LE(this._d, 12)
+  buffer.writeInt32LE(this._e, 16)
+  return buffer
 }
 
-/*</replacement>*/
-
-/*<replacement>*/
-var util = Object.create(require('core-util-is'));
-util.inherits = require('inherits');
-/*</replacement>*/
-
-/*<replacement>*/
-var debugUtil = require('util');
-var debug = void 0;
-if (debugUtil && debugUtil.debuglog) {
-  debug = debugUtil.debuglog('stream');
-} else {
-  debug = function () {};
-}
-/*</replacement>*/
-
-var BufferList = require('./internal/streams/BufferList');
-var destroyImpl = require('./internal/streams/destroy');
-var StringDecoder;
-
-util.inherits(Readable, Stream);
-
-var kProxyEvents = ['error', 'close', 'destroy', 'pause', 'resume'];
-
-function prependListener(emitter, event, fn) {
-  // Sadly this is not cacheable as some libraries bundle their own
-  // event emitter implementation with them.
-  if (typeof emitter.prependListener === 'function') return emitter.prependListener(event, fn);
-
-  // This is a hack to make sure that our error handler is attached before any
-  // userland ones.  NEVER DO THIS. This is here only because this code needs
-  // to continue to work with older versions of Node.js that do not include
-  // the prependListener() method. The goal is to eventually remove this hack.
-  if (!emitter._events || !emitter._events[event]) emitter.on(event, fn);else if (isArray(emitter._events[event])) emitter._events[event].unshift(fn);else emitter._events[event] = [fn, emitter._events[event]];
+function rotl (x, n) {
+  return (x << n) | (x >>> (32 - n))
 }
 
-function ReadableState(options, stream) {
-  Duplex = Duplex || require('./_stream_duplex');
-
-  options = options || {};
-
-  // Duplex streams are both readable and writable, but share
-  // the same options object.
-  // However, some cases require setting options to different
-  // values for the readable and the writable sides of the duplex stream.
-  // These options can be provided separately as readableXXX and writableXXX.
-  var isDuplex = stream instanceof Duplex;
-
-  // object stream flag. Used to make read(n) ignore n and to
-  // make all the buffer merging and length checks go away
-  this.objectMode = !!options.objectMode;
-
-  if (isDuplex) this.objectMode = this.objectMode || !!options.readableObjectMode;
-
-  // the point at which it stops calling _read() to fill the buffer
-  // Note: 0 is a valid value, means "don't call _read preemptively ever"
-  var hwm = options.highWaterMark;
-  var readableHwm = options.readableHighWaterMark;
-  var defaultHwm = this.objectMode ? 16 : 16 * 1024;
-
-  if (hwm || hwm === 0) this.highWaterMark = hwm;else if (isDuplex && (readableHwm || readableHwm === 0)) this.highWaterMark = readableHwm;else this.highWaterMark = defaultHwm;
-
-  // cast to ints.
-  this.highWaterMark = Math.floor(this.highWaterMark);
-
-  // A linked list is used to store data chunks instead of an array because the
-  // linked list can remove elements from the beginning faster than
-  // array.shift()
-  this.buffer = new BufferList();
-  this.length = 0;
-  this.pipes = null;
-  this.pipesCount = 0;
-  this.flowing = null;
-  this.ended = false;
-  this.endEmitted = false;
-  this.reading = false;
-
-  // a flag to be able to tell if the event 'readable'/'data' is emitted
-  // immediately, or on a later tick.  We set this to true at first, because
-  // any actions that shouldn't happen until "later" should generally also
-  // not happen before the first read call.
-  this.sync = true;
-
-  // whenever we return null, then we set a flag to say
-  // that we're awaiting a 'readable' event emission.
-  this.needReadable = false;
-  this.emittedReadable = false;
-  this.readableListening = false;
-  this.resumeScheduled = false;
-
-  // has it been destroyed
-  this.destroyed = false;
-
-  // Crypto is kind of old and crusty.  Historically, its default string
-  // encoding is 'binary' so we have to make this configurable.
-  // Everything else in the universe uses 'utf8', though.
-  this.defaultEncoding = options.defaultEncoding || 'utf8';
-
-  // the number of writers that are awaiting a drain event in .pipe()s
-  this.awaitDrain = 0;
-
-  // if true, a maybeReadMore has been scheduled
-  this.readingMore = false;
-
-  this.decoder = null;
-  this.encoding = null;
-  if (options.encoding) {
-    if (!StringDecoder) StringDecoder = require('string_decoder/').StringDecoder;
-    this.decoder = new StringDecoder(options.encoding);
-    this.encoding = options.encoding;
-  }
+function fn1 (a, b, c, d, e, m, k, s) {
+  return (rotl((a + (b ^ c ^ d) + m + k) | 0, s) + e) | 0
 }
 
-function Readable(options) {
-  Duplex = Duplex || require('./_stream_duplex');
-
-  if (!(this instanceof Readable)) return new Readable(options);
-
-  this._readableState = new ReadableState(options, this);
-
-  // legacy
-  this.readable = true;
-
-  if (options) {
-    if (typeof options.read === 'function') this._read = options.read;
-
-    if (typeof options.destroy === 'function') this._destroy = options.destroy;
-  }
-
-  Stream.call(this);
+function fn2 (a, b, c, d, e, m, k, s) {
+  return (rotl((a + ((b & c) | ((~b) & d)) + m + k) | 0, s) + e) | 0
 }
 
-Object.defineProperty(Readable.prototype, 'destroyed', {
-  get: function () {
-    if (this._readableState === undefined) {
-      return false;
-    }
-    return this._readableState.destroyed;
-  },
-  set: function (value) {
-    // we ignore the value if the stream
-    // has not been initialized yet
-    if (!this._readableState) {
-      return;
-    }
-
-    // backward compatibility, the user is explicitly
-    // managing destroyed
-    this._readableState.destroyed = value;
-  }
-});
-
-Readable.prototype.destroy = destroyImpl.destroy;
-Readable.prototype._undestroy = destroyImpl.undestroy;
-Readable.prototype._destroy = function (err, cb) {
-  this.push(null);
-  cb(err);
-};
-
-// Manually shove something into the read() buffer.
-// This returns true if the highWaterMark has not been hit yet,
-// similar to how Writable.write() returns true if you should
-// write() some more.
-Readable.prototype.push = function (chunk, encoding) {
-  var state = this._readableState;
-  var skipChunkCheck;
-
-  if (!state.objectMode) {
-    if (typeof chunk === 'string') {
-      encoding = encoding || state.defaultEncoding;
-      if (encoding !== state.encoding) {
-        chunk = Buffer.from(chunk, encoding);
-        encoding = '';
-      }
-      skipChunkCheck = true;
-    }
-  } else {
-    skipChunkCheck = true;
-  }
-
-  return readableAddChunk(this, chunk, encoding, false, skipChunkCheck);
-};
-
-// Unshift should *always* be something directly out of read()
-Readable.prototype.unshift = function (chunk) {
-  return readableAddChunk(this, chunk, null, true, false);
-};
-
-function readableAddChunk(stream, chunk, encoding, addToFront, skipChunkCheck) {
-  var state = stream._readableState;
-  if (chunk === null) {
-    state.reading = false;
-    onEofChunk(stream, state);
-  } else {
-    var er;
-    if (!skipChunkCheck) er = chunkInvalid(state, chunk);
-    if (er) {
-      stream.emit('error', er);
-    } else if (state.objectMode || chunk && chunk.length > 0) {
-      if (typeof chunk !== 'string' && !state.objectMode && Object.getPrototypeOf(chunk) !== Buffer.prototype) {
-        chunk = _uint8ArrayToBuffer(chunk);
-      }
-
-      if (addToFront) {
-        if (state.endEmitted) stream.emit('error', new Error('stream.unshift() after end event'));else addChunk(stream, state, chunk, true);
-      } else if (state.ended) {
-        stream.emit('error', new Error('stream.push() after EOF'));
-      } else {
-        state.reading = false;
-        if (state.decoder && !encoding) {
-          chunk = state.decoder.write(chunk);
-          if (state.objectMode || chunk.length !== 0) addChunk(stream, state, chunk, false);else maybeReadMore(stream, state);
-        } else {
-          addChunk(stream, state, chunk, false);
-        }
-      }
-    } else if (!addToFront) {
-      state.reading = false;
-    }
-  }
-
-  return needMoreData(state);
+function fn3 (a, b, c, d, e, m, k, s) {
+  return (rotl((a + ((b | (~c)) ^ d) + m + k) | 0, s) + e) | 0
 }
 
-function addChunk(stream, state, chunk, addToFront) {
-  if (state.flowing && state.length === 0 && !state.sync) {
-    stream.emit('data', chunk);
-    stream.read(0);
-  } else {
-    // update the buffer info.
-    state.length += state.objectMode ? 1 : chunk.length;
-    if (addToFront) state.buffer.unshift(chunk);else state.buffer.push(chunk);
-
-    if (state.needReadable) emitReadable(stream);
-  }
-  maybeReadMore(stream, state);
+function fn4 (a, b, c, d, e, m, k, s) {
+  return (rotl((a + ((b & d) | (c & (~d))) + m + k) | 0, s) + e) | 0
 }
 
-function chunkInvalid(state, chunk) {
-  var er;
-  if (!_isUint8Array(chunk) && typeof chunk !== 'string' && chunk !== undefined && !state.objectMode) {
-    er = new TypeError('Invalid non-string/buffer chunk');
-  }
-  return er;
+function fn5 (a, b, c, d, e, m, k, s) {
+  return (rotl((a + (b ^ (c | (~d))) + m + k) | 0, s) + e) | 0
 }
 
-// if it's past the high water mark, we can push in some more.
-// Also, if we have no data yet, we can stand some
-// more bytes.  This is to work around cases where hwm=0,
-// such as the repl.  Also, if the push() triggered a
-// readable event, and the user called read(largeNumber) such that
-// needReadable was set, then we ought to push more, so that another
-// 'readable' event will be triggered.
-function needMoreData(state) {
-  return !state.ended && (state.needReadable || state.length < state.highWaterMark || state.length === 0);
-}
+module.exports = RIPEMD160
 
-Readable.prototype.isPaused = function () {
-  return this._readableState.flowing === false;
-};
-
-// backwards compatibility.
-Readable.prototype.setEncoding = function (enc) {
-  if (!StringDecoder) StringDecoder = require('string_decoder/').StringDecoder;
-  this._readableState.decoder = new StringDecoder(enc);
-  this._readableState.encoding = enc;
-  return this;
-};
-
-// Don't raise the hwm > 8MB
-var MAX_HWM = 0x800000;
-function computeNewHighWaterMark(n) {
-  if (n >= MAX_HWM) {
-    n = MAX_HWM;
-  } else {
-    // Get the next highest power of 2 to prevent increasing hwm excessively in
-    // tiny amounts
-    n--;
-    n |= n >>> 1;
-    n |= n >>> 2;
-    n |= n >>> 4;
-    n |= n >>> 8;
-    n |= n >>> 16;
-    n++;
-  }
-  return n;
-}
-
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function howMuchToRead(n, state) {
-  if (n <= 0 || state.length === 0 && state.ended) return 0;
-  if (state.objectMode) return 1;
-  if (n !== n) {
-    // Only flow one buffer at a time
-    if (state.flowing && state.length) return state.buffer.head.data.length;else return state.length;
-  }
-  // If we're asking for more than the current hwm, then raise the hwm.
-  if (n > state.highWaterMark) state.highWaterMark = computeNewHighWaterMark(n);
-  if (n <= state.length) return n;
-  // Don't have enough
-  if (!state.ended) {
-    state.needReadable = true;
-    return 0;
-  }
-  return state.length;
-}
-
-// you can override either this method, or the async _read(n) below.
-Readable.prototype.read = function (n) {
-  debug('read', n);
-  n = parseInt(n, 10);
-  var state = this._readableState;
-  var nOrig = n;
-
-  if (n !== 0) state.emittedReadable = false;
-
-  // if we're doing read(0) to trigger a readable event, but we
-  // already have a bunch of data in the buffer, then just trigger
-  // the 'readable' event and move on.
-  if (n === 0 && state.needReadable && (state.length >= state.highWaterMark || state.ended)) {
-    debug('read: emitReadable', state.length, state.ended);
-    if (state.length === 0 && state.ended) endReadable(this);else emitReadable(this);
-    return null;
-  }
-
-  n = howMuchToRead(n, state);
-
-  // if we've ended, and we're now clear, then finish it up.
-  if (n === 0 && state.ended) {
-    if (state.length === 0) endReadable(this);
-    return null;
-  }
-
-  // All the actual chunk generation logic needs to be
-  // *below* the call to _read.  The reason is that in certain
-  // synthetic stream cases, such as passthrough streams, _read
-  // may be a completely synchronous operation which may change
-  // the state of the read buffer, providing enough data when
-  // before there was *not* enough.
-  //
-  // So, the steps are:
-  // 1. Figure out what the state of things will be after we do
-  // a read from the buffer.
-  //
-  // 2. If that resulting state will trigger a _read, then call _read.
-  // Note that this may be asynchronous, or synchronous.  Yes, it is
-  // deeply ugly to write APIs this way, but that still doesn't mean
-  // that the Readable class should behave improperly, as streams are
-  // designed to be sync/async agnostic.
-  // Take note if the _read call is sync or async (ie, if the read call
-  // has returned yet), so that we know whether or not it's safe to emit
-  // 'readable' etc.
-  //
-  // 3. Actually pull the requested chunks out of the buffer and return.
-
-  // if we need a readable event, then we need to do some reading.
-  var doRead = state.needReadable;
-  debug('need readable', doRead);
-
-  // if we currently have less than the highWaterMark, then also read some
-  if (state.length === 0 || state.length - n < state.highWaterMark) {
-    doRead = true;
-    debug('length less than watermark', doRead);
-  }
-
-  // however, if we've ended, then there's no point, and if we're already
-  // reading, then it's unnecessary.
-  if (state.ended || state.reading) {
-    doRead = false;
-    debug('reading or ended', doRead);
-  } else if (doRead) {
-    debug('do read');
-    state.reading = true;
-    state.sync = true;
-    // if the length is currently zero, then we *need* a readable event.
-    if (state.length === 0) state.needReadable = true;
-    // call internal read method
-    this._read(state.highWaterMark);
-    state.sync = false;
-    // If _read pushed data synchronously, then `reading` will be false,
-    // and we need to re-evaluate how much data we can return to the user.
-    if (!state.reading) n = howMuchToRead(nOrig, state);
-  }
-
-  var ret;
-  if (n > 0) ret = fromList(n, state);else ret = null;
-
-  if (ret === null) {
-    state.needReadable = true;
-    n = 0;
-  } else {
-    state.length -= n;
-  }
-
-  if (state.length === 0) {
-    // If we have nothing in the buffer, then we want to know
-    // as soon as we *do* get something into the buffer.
-    if (!state.ended) state.needReadable = true;
-
-    // If we tried to read() past the EOF, then emit end on the next tick.
-    if (nOrig !== n && state.ended) endReadable(this);
-  }
-
-  if (ret !== null) this.emit('data', ret);
-
-  return ret;
-};
-
-function onEofChunk(stream, state) {
-  if (state.ended) return;
-  if (state.decoder) {
-    var chunk = state.decoder.end();
-    if (chunk && chunk.length) {
-      state.buffer.push(chunk);
-      state.length += state.objectMode ? 1 : chunk.length;
-    }
-  }
-  state.ended = true;
-
-  // emit 'readable' now to make sure it gets picked up.
-  emitReadable(stream);
-}
-
-// Don't emit readable right away in sync mode, because this can trigger
-// another read() call => stack overflow.  This way, it might trigger
-// a nextTick recursion warning, but that's not so bad.
-function emitReadable(stream) {
-  var state = stream._readableState;
-  state.needReadable = false;
-  if (!state.emittedReadable) {
-    debug('emitReadable', state.flowing);
-    state.emittedReadable = true;
-    if (state.sync) pna.nextTick(emitReadable_, stream);else emitReadable_(stream);
-  }
-}
-
-function emitReadable_(stream) {
-  debug('emit readable');
-  stream.emit('readable');
-  flow(stream);
-}
-
-// at this point, the user has presumably seen the 'readable' event,
-// and called read() to consume some data.  that may have triggered
-// in turn another _read(n) call, in which case reading = true if
-// it's in progress.
-// However, if we're not ended, or reading, and the length < hwm,
-// then go ahead and try to read some more preemptively.
-function maybeReadMore(stream, state) {
-  if (!state.readingMore) {
-    state.readingMore = true;
-    pna.nextTick(maybeReadMore_, stream, state);
-  }
-}
-
-function maybeReadMore_(stream, state) {
-  var len = state.length;
-  while (!state.reading && !state.flowing && !state.ended && state.length < state.highWaterMark) {
-    debug('maybeReadMore read 0');
-    stream.read(0);
-    if (len === state.length)
-      // didn't get any data, stop spinning.
-      break;else len = state.length;
-  }
-  state.readingMore = false;
-}
-
-// abstract method.  to be overridden in specific implementation classes.
-// call cb(er, data) where data is <= n in length.
-// for virtual (non-string, non-buffer) streams, "length" is somewhat
-// arbitrary, and perhaps not very meaningful.
-Readable.prototype._read = function (n) {
-  this.emit('error', new Error('_read() is not implemented'));
-};
-
-Readable.prototype.pipe = function (dest, pipeOpts) {
-  var src = this;
-  var state = this._readableState;
-
-  switch (state.pipesCount) {
-    case 0:
-      state.pipes = dest;
-      break;
-    case 1:
-      state.pipes = [state.pipes, dest];
-      break;
-    default:
-      state.pipes.push(dest);
-      break;
-  }
-  state.pipesCount += 1;
-  debug('pipe count=%d opts=%j', state.pipesCount, pipeOpts);
-
-  var doEnd = (!pipeOpts || pipeOpts.end !== false) && dest !== process.stdout && dest !== process.stderr;
-
-  var endFn = doEnd ? onend : unpipe;
-  if (state.endEmitted) pna.nextTick(endFn);else src.once('end', endFn);
-
-  dest.on('unpipe', onunpipe);
-  function onunpipe(readable, unpipeInfo) {
-    debug('onunpipe');
-    if (readable === src) {
-      if (unpipeInfo && unpipeInfo.hasUnpiped === false) {
-        unpipeInfo.hasUnpiped = true;
-        cleanup();
-      }
-    }
-  }
-
-  function onend() {
-    debug('onend');
-    dest.end();
-  }
-
-  // when the dest drains, it reduces the awaitDrain counter
-  // on the source.  This would be more elegant with a .once()
-  // handler in flow(), but adding and removing repeatedly is
-  // too slow.
-  var ondrain = pipeOnDrain(src);
-  dest.on('drain', ondrain);
-
-  var cleanedUp = false;
-  function cleanup() {
-    debug('cleanup');
-    // cleanup event handlers once the pipe is broken
-    dest.removeListener('close', onclose);
-    dest.removeListener('finish', onfinish);
-    dest.removeListener('drain', ondrain);
-    dest.removeListener('error', onerror);
-    dest.removeListener('unpipe', onunpipe);
-    src.removeListener('end', onend);
-    src.removeListener('end', unpipe);
-    src.removeListener('data', ondata);
-
-    cleanedUp = true;
-
-    // if the reader is waiting for a drain event from this
-    // specific writer, then it would cause it to never start
-    // flowing again.
-    // So, if this is awaiting a drain, then we just call it now.
-    // If we don't know, then assume that we are waiting for one.
-    if (state.awaitDrain && (!dest._writableState || dest._writableState.needDrain)) ondrain();
-  }
-
-  // If the user pushes more data while we're writing to dest then we'll end up
-  // in ondata again. However, we only want to increase awaitDrain once because
-  // dest will only emit one 'drain' event for the multiple writes.
-  // => Introduce a guard on increasing awaitDrain.
-  var increasedAwaitDrain = false;
-  src.on('data', ondata);
-  function ondata(chunk) {
-    debug('ondata');
-    increasedAwaitDrain = false;
-    var ret = dest.write(chunk);
-    if (false === ret && !increasedAwaitDrain) {
-      // If the user unpiped during `dest.write()`, it is possible
-      // to get stuck in a permanently paused state if that write
-      // also returned false.
-      // => Check whether `dest` is still a piping destination.
-      if ((state.pipesCount === 1 && state.pipes === dest || state.pipesCount > 1 && indexOf(state.pipes, dest) !== -1) && !cleanedUp) {
-        debug('false write response, pause', src._readableState.awaitDrain);
-        src._readableState.awaitDrain++;
-        increasedAwaitDrain = true;
-      }
-      src.pause();
-    }
-  }
-
-  // if the dest has an error, then stop piping into it.
-  // however, don't suppress the throwing behavior for this.
-  function onerror(er) {
-    debug('onerror', er);
-    unpipe();
-    dest.removeListener('error', onerror);
-    if (EElistenerCount(dest, 'error') === 0) dest.emit('error', er);
-  }
-
-  // Make sure our error handler is attached before userland ones.
-  prependListener(dest, 'error', onerror);
-
-  // Both close and finish should trigger unpipe, but only once.
-  function onclose() {
-    dest.removeListener('finish', onfinish);
-    unpipe();
-  }
-  dest.once('close', onclose);
-  function onfinish() {
-    debug('onfinish');
-    dest.removeListener('close', onclose);
-    unpipe();
-  }
-  dest.once('finish', onfinish);
-
-  function unpipe() {
-    debug('unpipe');
-    src.unpipe(dest);
-  }
-
-  // tell the dest that it's being piped to
-  dest.emit('pipe', src);
-
-  // start the flow if it hasn't been started already.
-  if (!state.flowing) {
-    debug('pipe resume');
-    src.resume();
-  }
-
-  return dest;
-};
-
-function pipeOnDrain(src) {
-  return function () {
-    var state = src._readableState;
-    debug('pipeOnDrain', state.awaitDrain);
-    if (state.awaitDrain) state.awaitDrain--;
-    if (state.awaitDrain === 0 && EElistenerCount(src, 'data')) {
-      state.flowing = true;
-      flow(src);
-    }
-  };
-}
-
-Readable.prototype.unpipe = function (dest) {
-  var state = this._readableState;
-  var unpipeInfo = { hasUnpiped: false };
-
-  // if we're not piping anywhere, then do nothing.
-  if (state.pipesCount === 0) return this;
-
-  // just one destination.  most common case.
-  if (state.pipesCount === 1) {
-    // passed in one, but it's not the right one.
-    if (dest && dest !== state.pipes) return this;
-
-    if (!dest) dest = state.pipes;
-
-    // got a match.
-    state.pipes = null;
-    state.pipesCount = 0;
-    state.flowing = false;
-    if (dest) dest.emit('unpipe', this, unpipeInfo);
-    return this;
-  }
-
-  // slow case. multiple pipe destinations.
-
-  if (!dest) {
-    // remove all.
-    var dests = state.pipes;
-    var len = state.pipesCount;
-    state.pipes = null;
-    state.pipesCount = 0;
-    state.flowing = false;
-
-    for (var i = 0; i < len; i++) {
-      dests[i].emit('unpipe', this, unpipeInfo);
-    }return this;
-  }
-
-  // try to find the right one.
-  var index = indexOf(state.pipes, dest);
-  if (index === -1) return this;
-
-  state.pipes.splice(index, 1);
-  state.pipesCount -= 1;
-  if (state.pipesCount === 1) state.pipes = state.pipes[0];
-
-  dest.emit('unpipe', this, unpipeInfo);
-
-  return this;
-};
-
-// set up data events if they are asked for
-// Ensure readable listeners eventually get something
-Readable.prototype.on = function (ev, fn) {
-  var res = Stream.prototype.on.call(this, ev, fn);
-
-  if (ev === 'data') {
-    // Start flowing on next tick if stream isn't explicitly paused
-    if (this._readableState.flowing !== false) this.resume();
-  } else if (ev === 'readable') {
-    var state = this._readableState;
-    if (!state.endEmitted && !state.readableListening) {
-      state.readableListening = state.needReadable = true;
-      state.emittedReadable = false;
-      if (!state.reading) {
-        pna.nextTick(nReadingNextTick, this);
-      } else if (state.length) {
-        emitReadable(this);
-      }
-    }
-  }
-
-  return res;
-};
-Readable.prototype.addListener = Readable.prototype.on;
-
-function nReadingNextTick(self) {
-  debug('readable nexttick read 0');
-  self.read(0);
-}
-
-// pause() and resume() are remnants of the legacy readable stream API
-// If the user uses them, then switch into old mode.
-Readable.prototype.resume = function () {
-  var state = this._readableState;
-  if (!state.flowing) {
-    debug('resume');
-    state.flowing = true;
-    resume(this, state);
-  }
-  return this;
-};
-
-function resume(stream, state) {
-  if (!state.resumeScheduled) {
-    state.resumeScheduled = true;
-    pna.nextTick(resume_, stream, state);
-  }
-}
-
-function resume_(stream, state) {
-  if (!state.reading) {
-    debug('resume read 0');
-    stream.read(0);
-  }
-
-  state.resumeScheduled = false;
-  state.awaitDrain = 0;
-  stream.emit('resume');
-  flow(stream);
-  if (state.flowing && !state.reading) stream.read(0);
-}
-
-Readable.prototype.pause = function () {
-  debug('call pause flowing=%j', this._readableState.flowing);
-  if (false !== this._readableState.flowing) {
-    debug('pause');
-    this._readableState.flowing = false;
-    this.emit('pause');
-  }
-  return this;
-};
-
-function flow(stream) {
-  var state = stream._readableState;
-  debug('flow', state.flowing);
-  while (state.flowing && stream.read() !== null) {}
-}
-
-// wrap an old-style stream as the async data source.
-// This is *not* part of the readable stream interface.
-// It is an ugly unfortunate mess of history.
-Readable.prototype.wrap = function (stream) {
-  var _this = this;
-
-  var state = this._readableState;
-  var paused = false;
-
-  stream.on('end', function () {
-    debug('wrapped end');
-    if (state.decoder && !state.ended) {
-      var chunk = state.decoder.end();
-      if (chunk && chunk.length) _this.push(chunk);
-    }
-
-    _this.push(null);
-  });
-
-  stream.on('data', function (chunk) {
-    debug('wrapped data');
-    if (state.decoder) chunk = state.decoder.write(chunk);
-
-    // don't skip over falsy values in objectMode
-    if (state.objectMode && (chunk === null || chunk === undefined)) return;else if (!state.objectMode && (!chunk || !chunk.length)) return;
-
-    var ret = _this.push(chunk);
-    if (!ret) {
-      paused = true;
-      stream.pause();
-    }
-  });
-
-  // proxy all the other methods.
-  // important when wrapping filters and duplexes.
-  for (var i in stream) {
-    if (this[i] === undefined && typeof stream[i] === 'function') {
-      this[i] = function (method) {
-        return function () {
-          return stream[method].apply(stream, arguments);
-        };
-      }(i);
-    }
-  }
-
-  // proxy certain important events.
-  for (var n = 0; n < kProxyEvents.length; n++) {
-    stream.on(kProxyEvents[n], this.emit.bind(this, kProxyEvents[n]));
-  }
-
-  // when we try to consume some more bytes, simply unpause the
-  // underlying stream.
-  this._read = function (n) {
-    debug('wrapped _read', n);
-    if (paused) {
-      paused = false;
-      stream.resume();
-    }
-  };
-
-  return this;
-};
-
-Object.defineProperty(Readable.prototype, 'readableHighWaterMark', {
-  // making it explicit this property is not enumerable
-  // because otherwise some prototype manipulation in
-  // userland will fail
-  enumerable: false,
-  get: function () {
-    return this._readableState.highWaterMark;
-  }
-});
-
-// exposed for testing purposes only.
-Readable._fromList = fromList;
-
-// Pluck off n bytes from an array of buffers.
-// Length is the combined lengths of all the buffers in the list.
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function fromList(n, state) {
-  // nothing buffered
-  if (state.length === 0) return null;
-
-  var ret;
-  if (state.objectMode) ret = state.buffer.shift();else if (!n || n >= state.length) {
-    // read it all, truncate the list
-    if (state.decoder) ret = state.buffer.join('');else if (state.buffer.length === 1) ret = state.buffer.head.data;else ret = state.buffer.concat(state.length);
-    state.buffer.clear();
-  } else {
-    // read part of list
-    ret = fromListPartial(n, state.buffer, state.decoder);
-  }
-
-  return ret;
-}
-
-// Extracts only enough buffered data to satisfy the amount requested.
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function fromListPartial(n, list, hasStrings) {
-  var ret;
-  if (n < list.head.data.length) {
-    // slice is the same for buffers and strings
-    ret = list.head.data.slice(0, n);
-    list.head.data = list.head.data.slice(n);
-  } else if (n === list.head.data.length) {
-    // first chunk is a perfect match
-    ret = list.shift();
-  } else {
-    // result spans more than one buffer
-    ret = hasStrings ? copyFromBufferString(n, list) : copyFromBuffer(n, list);
-  }
-  return ret;
-}
-
-// Copies a specified amount of characters from the list of buffered data
-// chunks.
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function copyFromBufferString(n, list) {
-  var p = list.head;
-  var c = 1;
-  var ret = p.data;
-  n -= ret.length;
-  while (p = p.next) {
-    var str = p.data;
-    var nb = n > str.length ? str.length : n;
-    if (nb === str.length) ret += str;else ret += str.slice(0, n);
-    n -= nb;
-    if (n === 0) {
-      if (nb === str.length) {
-        ++c;
-        if (p.next) list.head = p.next;else list.head = list.tail = null;
-      } else {
-        list.head = p;
-        p.data = str.slice(nb);
-      }
-      break;
-    }
-    ++c;
-  }
-  list.length -= c;
-  return ret;
-}
-
-// Copies a specified amount of bytes from the list of buffered data chunks.
-// This function is designed to be inlinable, so please take care when making
-// changes to the function body.
-function copyFromBuffer(n, list) {
-  var ret = Buffer.allocUnsafe(n);
-  var p = list.head;
-  var c = 1;
-  p.data.copy(ret);
-  n -= p.data.length;
-  while (p = p.next) {
-    var buf = p.data;
-    var nb = n > buf.length ? buf.length : n;
-    buf.copy(ret, ret.length - n, 0, nb);
-    n -= nb;
-    if (n === 0) {
-      if (nb === buf.length) {
-        ++c;
-        if (p.next) list.head = p.next;else list.head = list.tail = null;
-      } else {
-        list.head = p;
-        p.data = buf.slice(nb);
-      }
-      break;
-    }
-    ++c;
-  }
-  list.length -= c;
-  return ret;
-}
-
-function endReadable(stream) {
-  var state = stream._readableState;
-
-  // If we get here before consuming all the bytes, then that is a
-  // bug in node.  Should never happen.
-  if (state.length > 0) throw new Error('"endReadable()" called on non-empty stream');
-
-  if (!state.endEmitted) {
-    state.ended = true;
-    pna.nextTick(endReadableNT, state, stream);
-  }
-}
-
-function endReadableNT(state, stream) {
-  // Check that we didn't get one last unshift.
-  if (!state.endEmitted && state.length === 0) {
-    state.endEmitted = true;
-    stream.readable = false;
-    stream.emit('end');
-  }
-}
-
-function indexOf(xs, x) {
-  for (var i = 0, l = xs.length; i < l; i++) {
-    if (xs[i] === x) return i;
-  }
-  return -1;
-}
-}).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./_stream_duplex":347,"./internal/streams/BufferList":352,"./internal/streams/destroy":353,"./internal/streams/stream":354,"_process":332,"core-util-is":242,"events":278,"inherits":310,"isarray":312,"process-nextick-args":331,"safe-buffer":355,"string_decoder/":356,"util":195}],350:[function(require,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// a transform stream is a readable/writable stream where you do
-// something with the data.  Sometimes it's called a "filter",
-// but that's not a great name for it, since that implies a thing where
-// some bits pass through, and others are simply ignored.  (That would
-// be a valid example of a transform, of course.)
-//
-// While the output is causally related to the input, it's not a
-// necessarily symmetric or synchronous transformation.  For example,
-// a zlib stream might take multiple plain-text writes(), and then
-// emit a single compressed chunk some time in the future.
-//
-// Here's how this works:
-//
-// The Transform stream has all the aspects of the readable and writable
-// stream classes.  When you write(chunk), that calls _write(chunk,cb)
-// internally, and returns false if there's a lot of pending writes
-// buffered up.  When you call read(), that calls _read(n) until
-// there's enough pending readable data buffered up.
-//
-// In a transform stream, the written data is placed in a buffer.  When
-// _read(n) is called, it transforms the queued up data, calling the
-// buffered _write cb's as it consumes chunks.  If consuming a single
-// written chunk would result in multiple output chunks, then the first
-// outputted bit calls the readcb, and subsequent chunks just go into
-// the read buffer, and will cause it to emit 'readable' if necessary.
-//
-// This way, back-pressure is actually determined by the reading side,
-// since _read has to be called to start processing a new chunk.  However,
-// a pathological inflate type of transform can cause excessive buffering
-// here.  For example, imagine a stream where every byte of input is
-// interpreted as an integer from 0-255, and then results in that many
-// bytes of output.  Writing the 4 bytes {ff,ff,ff,ff} would result in
-// 1kb of data being output.  In this case, you could write a very small
-// amount of input, and end up with a very large amount of output.  In
-// such a pathological inflating mechanism, there'd be no way to tell
-// the system to stop doing the transform.  A single 4MB write could
-// cause the system to run out of memory.
-//
-// However, even in such a pathological case, only a single written chunk
-// would be consumed, and then the rest would wait (un-transformed) until
-// the results of the previous transformed chunk were consumed.
-
-'use strict';
-
-module.exports = Transform;
-
-var Duplex = require('./_stream_duplex');
-
-/*<replacement>*/
-var util = Object.create(require('core-util-is'));
-util.inherits = require('inherits');
-/*</replacement>*/
-
-util.inherits(Transform, Duplex);
-
-function afterTransform(er, data) {
-  var ts = this._transformState;
-  ts.transforming = false;
-
-  var cb = ts.writecb;
-
-  if (!cb) {
-    return this.emit('error', new Error('write callback called multiple times'));
-  }
-
-  ts.writechunk = null;
-  ts.writecb = null;
-
-  if (data != null) // single equals check for both `null` and `undefined`
-    this.push(data);
-
-  cb(er);
-
-  var rs = this._readableState;
-  rs.reading = false;
-  if (rs.needReadable || rs.length < rs.highWaterMark) {
-    this._read(rs.highWaterMark);
-  }
-}
-
-function Transform(options) {
-  if (!(this instanceof Transform)) return new Transform(options);
-
-  Duplex.call(this, options);
-
-  this._transformState = {
-    afterTransform: afterTransform.bind(this),
-    needTransform: false,
-    transforming: false,
-    writecb: null,
-    writechunk: null,
-    writeencoding: null
-  };
-
-  // start out asking for a readable event once data is transformed.
-  this._readableState.needReadable = true;
-
-  // we have implemented the _read method, and done the other things
-  // that Readable wants before the first _read call, so unset the
-  // sync guard flag.
-  this._readableState.sync = false;
-
-  if (options) {
-    if (typeof options.transform === 'function') this._transform = options.transform;
-
-    if (typeof options.flush === 'function') this._flush = options.flush;
-  }
-
-  // When the writable side finishes, then flush out anything remaining.
-  this.on('prefinish', prefinish);
-}
-
-function prefinish() {
-  var _this = this;
-
-  if (typeof this._flush === 'function') {
-    this._flush(function (er, data) {
-      done(_this, er, data);
-    });
-  } else {
-    done(this, null, null);
-  }
-}
-
-Transform.prototype.push = function (chunk, encoding) {
-  this._transformState.needTransform = false;
-  return Duplex.prototype.push.call(this, chunk, encoding);
-};
-
-// This is the part where you do stuff!
-// override this function in implementation classes.
-// 'chunk' is an input chunk.
-//
-// Call `push(newChunk)` to pass along transformed output
-// to the readable side.  You may call 'push' zero or more times.
-//
-// Call `cb(err)` when you are done with this chunk.  If you pass
-// an error, then that'll put the hurt on the whole operation.  If you
-// never call cb(), then you'll never get another chunk.
-Transform.prototype._transform = function (chunk, encoding, cb) {
-  throw new Error('_transform() is not implemented');
-};
-
-Transform.prototype._write = function (chunk, encoding, cb) {
-  var ts = this._transformState;
-  ts.writecb = cb;
-  ts.writechunk = chunk;
-  ts.writeencoding = encoding;
-  if (!ts.transforming) {
-    var rs = this._readableState;
-    if (ts.needTransform || rs.needReadable || rs.length < rs.highWaterMark) this._read(rs.highWaterMark);
-  }
-};
-
-// Doesn't matter what the args are here.
-// _transform does all the work.
-// That we got here means that the readable side wants more data.
-Transform.prototype._read = function (n) {
-  var ts = this._transformState;
-
-  if (ts.writechunk !== null && ts.writecb && !ts.transforming) {
-    ts.transforming = true;
-    this._transform(ts.writechunk, ts.writeencoding, ts.afterTransform);
-  } else {
-    // mark that we need a transform, so that any data that comes in
-    // will get processed, now that we've asked for it.
-    ts.needTransform = true;
-  }
-};
-
-Transform.prototype._destroy = function (err, cb) {
-  var _this2 = this;
-
-  Duplex.prototype._destroy.call(this, err, function (err2) {
-    cb(err2);
-    _this2.emit('close');
-  });
-};
-
-function done(stream, er, data) {
-  if (er) return stream.emit('error', er);
-
-  if (data != null) // single equals check for both `null` and `undefined`
-    stream.push(data);
-
-  // if there's nothing in the write buffer, then that means
-  // that nothing more will ever be provided
-  if (stream._writableState.length) throw new Error('Calling transform done when ws.length != 0');
-
-  if (stream._transformState.transforming) throw new Error('Calling transform done when still transforming');
-
-  return stream.push(null);
-}
-},{"./_stream_duplex":347,"core-util-is":242,"inherits":310}],351:[function(require,module,exports){
-(function (process,global,setImmediate){(function (){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// A bit simpler than readable streams.
-// Implement an async ._write(chunk, encoding, cb), and it'll handle all
-// the drain event emission and buffering.
-
-'use strict';
-
-/*<replacement>*/
-
-var pna = require('process-nextick-args');
-/*</replacement>*/
-
-module.exports = Writable;
-
-/* <replacement> */
-function WriteReq(chunk, encoding, cb) {
-  this.chunk = chunk;
-  this.encoding = encoding;
-  this.callback = cb;
-  this.next = null;
-}
-
-// It seems a linked list but it is not
-// there will be only 2 of these for each stream
-function CorkedRequest(state) {
-  var _this = this;
-
-  this.next = null;
-  this.entry = null;
-  this.finish = function () {
-    onCorkedFinish(_this, state);
-  };
-}
-/* </replacement> */
-
-/*<replacement>*/
-var asyncWrite = !process.browser && ['v0.10', 'v0.9.'].indexOf(process.version.slice(0, 5)) > -1 ? setImmediate : pna.nextTick;
-/*</replacement>*/
-
-/*<replacement>*/
-var Duplex;
-/*</replacement>*/
-
-Writable.WritableState = WritableState;
-
-/*<replacement>*/
-var util = Object.create(require('core-util-is'));
-util.inherits = require('inherits');
-/*</replacement>*/
-
-/*<replacement>*/
-var internalUtil = {
-  deprecate: require('util-deprecate')
-};
-/*</replacement>*/
-
-/*<replacement>*/
-var Stream = require('./internal/streams/stream');
-/*</replacement>*/
-
-/*<replacement>*/
-
-var Buffer = require('safe-buffer').Buffer;
-var OurUint8Array = global.Uint8Array || function () {};
-function _uint8ArrayToBuffer(chunk) {
-  return Buffer.from(chunk);
-}
-function _isUint8Array(obj) {
-  return Buffer.isBuffer(obj) || obj instanceof OurUint8Array;
-}
-
-/*</replacement>*/
-
-var destroyImpl = require('./internal/streams/destroy');
-
-util.inherits(Writable, Stream);
-
-function nop() {}
-
-function WritableState(options, stream) {
-  Duplex = Duplex || require('./_stream_duplex');
-
-  options = options || {};
-
-  // Duplex streams are both readable and writable, but share
-  // the same options object.
-  // However, some cases require setting options to different
-  // values for the readable and the writable sides of the duplex stream.
-  // These options can be provided separately as readableXXX and writableXXX.
-  var isDuplex = stream instanceof Duplex;
-
-  // object stream flag to indicate whether or not this stream
-  // contains buffers or objects.
-  this.objectMode = !!options.objectMode;
-
-  if (isDuplex) this.objectMode = this.objectMode || !!options.writableObjectMode;
-
-  // the point at which write() starts returning false
-  // Note: 0 is a valid value, means that we always return false if
-  // the entire buffer is not flushed immediately on write()
-  var hwm = options.highWaterMark;
-  var writableHwm = options.writableHighWaterMark;
-  var defaultHwm = this.objectMode ? 16 : 16 * 1024;
-
-  if (hwm || hwm === 0) this.highWaterMark = hwm;else if (isDuplex && (writableHwm || writableHwm === 0)) this.highWaterMark = writableHwm;else this.highWaterMark = defaultHwm;
-
-  // cast to ints.
-  this.highWaterMark = Math.floor(this.highWaterMark);
-
-  // if _final has been called
-  this.finalCalled = false;
-
-  // drain event flag.
-  this.needDrain = false;
-  // at the start of calling end()
-  this.ending = false;
-  // when end() has been called, and returned
-  this.ended = false;
-  // when 'finish' is emitted
-  this.finished = false;
-
-  // has it been destroyed
-  this.destroyed = false;
-
-  // should we decode strings into buffers before passing to _write?
-  // this is here so that some node-core streams can optimize string
-  // handling at a lower level.
-  var noDecode = options.decodeStrings === false;
-  this.decodeStrings = !noDecode;
-
-  // Crypto is kind of old and crusty.  Historically, its default string
-  // encoding is 'binary' so we have to make this configurable.
-  // Everything else in the universe uses 'utf8', though.
-  this.defaultEncoding = options.defaultEncoding || 'utf8';
-
-  // not an actual buffer we keep track of, but a measurement
-  // of how much we're waiting to get pushed to some underlying
-  // socket or file.
-  this.length = 0;
-
-  // a flag to see when we're in the middle of a write.
-  this.writing = false;
-
-  // when true all writes will be buffered until .uncork() call
-  this.corked = 0;
-
-  // a flag to be able to tell if the onwrite cb is called immediately,
-  // or on a later tick.  We set this to true at first, because any
-  // actions that shouldn't happen until "later" should generally also
-  // not happen before the first write call.
-  this.sync = true;
-
-  // a flag to know if we're processing previously buffered items, which
-  // may call the _write() callback in the same tick, so that we don't
-  // end up in an overlapped onwrite situation.
-  this.bufferProcessing = false;
-
-  // the callback that's passed to _write(chunk,cb)
-  this.onwrite = function (er) {
-    onwrite(stream, er);
-  };
-
-  // the callback that the user supplies to write(chunk,encoding,cb)
-  this.writecb = null;
-
-  // the amount that is being written when _write is called.
-  this.writelen = 0;
-
-  this.bufferedRequest = null;
-  this.lastBufferedRequest = null;
-
-  // number of pending user-supplied write callbacks
-  // this must be 0 before 'finish' can be emitted
-  this.pendingcb = 0;
-
-  // emit prefinish if the only thing we're waiting for is _write cbs
-  // This is relevant for synchronous Transform streams
-  this.prefinished = false;
-
-  // True if the error was already emitted and should not be thrown again
-  this.errorEmitted = false;
-
-  // count buffered requests
-  this.bufferedRequestCount = 0;
-
-  // allocate the first CorkedRequest, there is always
-  // one allocated and free to use, and we maintain at most two
-  this.corkedRequestsFree = new CorkedRequest(this);
-}
-
-WritableState.prototype.getBuffer = function getBuffer() {
-  var current = this.bufferedRequest;
-  var out = [];
-  while (current) {
-    out.push(current);
-    current = current.next;
-  }
-  return out;
-};
-
-(function () {
-  try {
-    Object.defineProperty(WritableState.prototype, 'buffer', {
-      get: internalUtil.deprecate(function () {
-        return this.getBuffer();
-      }, '_writableState.buffer is deprecated. Use _writableState.getBuffer ' + 'instead.', 'DEP0003')
-    });
-  } catch (_) {}
-})();
-
-// Test _writableState for inheritance to account for Duplex streams,
-// whose prototype chain only points to Readable.
-var realHasInstance;
-if (typeof Symbol === 'function' && Symbol.hasInstance && typeof Function.prototype[Symbol.hasInstance] === 'function') {
-  realHasInstance = Function.prototype[Symbol.hasInstance];
-  Object.defineProperty(Writable, Symbol.hasInstance, {
-    value: function (object) {
-      if (realHasInstance.call(this, object)) return true;
-      if (this !== Writable) return false;
-
-      return object && object._writableState instanceof WritableState;
-    }
-  });
-} else {
-  realHasInstance = function (object) {
-    return object instanceof this;
-  };
-}
-
-function Writable(options) {
-  Duplex = Duplex || require('./_stream_duplex');
-
-  // Writable ctor is applied to Duplexes, too.
-  // `realHasInstance` is necessary because using plain `instanceof`
-  // would return false, as no `_writableState` property is attached.
-
-  // Trying to use the custom `instanceof` for Writable here will also break the
-  // Node.js LazyTransform implementation, which has a non-trivial getter for
-  // `_writableState` that would lead to infinite recursion.
-  if (!realHasInstance.call(Writable, this) && !(this instanceof Duplex)) {
-    return new Writable(options);
-  }
-
-  this._writableState = new WritableState(options, this);
-
-  // legacy.
-  this.writable = true;
-
-  if (options) {
-    if (typeof options.write === 'function') this._write = options.write;
-
-    if (typeof options.writev === 'function') this._writev = options.writev;
-
-    if (typeof options.destroy === 'function') this._destroy = options.destroy;
-
-    if (typeof options.final === 'function') this._final = options.final;
-  }
-
-  Stream.call(this);
-}
-
-// Otherwise people can pipe Writable streams, which is just wrong.
-Writable.prototype.pipe = function () {
-  this.emit('error', new Error('Cannot pipe, not readable'));
-};
-
-function writeAfterEnd(stream, cb) {
-  var er = new Error('write after end');
-  // TODO: defer error events consistently everywhere, not just the cb
-  stream.emit('error', er);
-  pna.nextTick(cb, er);
-}
-
-// Checks that a user-supplied chunk is valid, especially for the particular
-// mode the stream is in. Currently this means that `null` is never accepted
-// and undefined/non-string values are only allowed in object mode.
-function validChunk(stream, state, chunk, cb) {
-  var valid = true;
-  var er = false;
-
-  if (chunk === null) {
-    er = new TypeError('May not write null values to stream');
-  } else if (typeof chunk !== 'string' && chunk !== undefined && !state.objectMode) {
-    er = new TypeError('Invalid non-string/buffer chunk');
-  }
-  if (er) {
-    stream.emit('error', er);
-    pna.nextTick(cb, er);
-    valid = false;
-  }
-  return valid;
-}
-
-Writable.prototype.write = function (chunk, encoding, cb) {
-  var state = this._writableState;
-  var ret = false;
-  var isBuf = !state.objectMode && _isUint8Array(chunk);
-
-  if (isBuf && !Buffer.isBuffer(chunk)) {
-    chunk = _uint8ArrayToBuffer(chunk);
-  }
-
-  if (typeof encoding === 'function') {
-    cb = encoding;
-    encoding = null;
-  }
-
-  if (isBuf) encoding = 'buffer';else if (!encoding) encoding = state.defaultEncoding;
-
-  if (typeof cb !== 'function') cb = nop;
-
-  if (state.ended) writeAfterEnd(this, cb);else if (isBuf || validChunk(this, state, chunk, cb)) {
-    state.pendingcb++;
-    ret = writeOrBuffer(this, state, isBuf, chunk, encoding, cb);
-  }
-
-  return ret;
-};
-
-Writable.prototype.cork = function () {
-  var state = this._writableState;
-
-  state.corked++;
-};
-
-Writable.prototype.uncork = function () {
-  var state = this._writableState;
-
-  if (state.corked) {
-    state.corked--;
-
-    if (!state.writing && !state.corked && !state.finished && !state.bufferProcessing && state.bufferedRequest) clearBuffer(this, state);
-  }
-};
-
-Writable.prototype.setDefaultEncoding = function setDefaultEncoding(encoding) {
-  // node::ParseEncoding() requires lower case.
-  if (typeof encoding === 'string') encoding = encoding.toLowerCase();
-  if (!(['hex', 'utf8', 'utf-8', 'ascii', 'binary', 'base64', 'ucs2', 'ucs-2', 'utf16le', 'utf-16le', 'raw'].indexOf((encoding + '').toLowerCase()) > -1)) throw new TypeError('Unknown encoding: ' + encoding);
-  this._writableState.defaultEncoding = encoding;
-  return this;
-};
-
-function decodeChunk(state, chunk, encoding) {
-  if (!state.objectMode && state.decodeStrings !== false && typeof chunk === 'string') {
-    chunk = Buffer.from(chunk, encoding);
-  }
-  return chunk;
-}
-
-Object.defineProperty(Writable.prototype, 'writableHighWaterMark', {
-  // making it explicit this property is not enumerable
-  // because otherwise some prototype manipulation in
-  // userland will fail
-  enumerable: false,
-  get: function () {
-    return this._writableState.highWaterMark;
-  }
-});
-
-// if we're already writing something, then just put this
-// in the queue, and wait our turn.  Otherwise, call _write
-// If we return false, then we need a drain event, so set that flag.
-function writeOrBuffer(stream, state, isBuf, chunk, encoding, cb) {
-  if (!isBuf) {
-    var newChunk = decodeChunk(state, chunk, encoding);
-    if (chunk !== newChunk) {
-      isBuf = true;
-      encoding = 'buffer';
-      chunk = newChunk;
-    }
-  }
-  var len = state.objectMode ? 1 : chunk.length;
-
-  state.length += len;
-
-  var ret = state.length < state.highWaterMark;
-  // we must ensure that previous needDrain will not be reset to false.
-  if (!ret) state.needDrain = true;
-
-  if (state.writing || state.corked) {
-    var last = state.lastBufferedRequest;
-    state.lastBufferedRequest = {
-      chunk: chunk,
-      encoding: encoding,
-      isBuf: isBuf,
-      callback: cb,
-      next: null
-    };
-    if (last) {
-      last.next = state.lastBufferedRequest;
-    } else {
-      state.bufferedRequest = state.lastBufferedRequest;
-    }
-    state.bufferedRequestCount += 1;
-  } else {
-    doWrite(stream, state, false, len, chunk, encoding, cb);
-  }
-
-  return ret;
-}
-
-function doWrite(stream, state, writev, len, chunk, encoding, cb) {
-  state.writelen = len;
-  state.writecb = cb;
-  state.writing = true;
-  state.sync = true;
-  if (writev) stream._writev(chunk, state.onwrite);else stream._write(chunk, encoding, state.onwrite);
-  state.sync = false;
-}
-
-function onwriteError(stream, state, sync, er, cb) {
-  --state.pendingcb;
-
-  if (sync) {
-    // defer the callback if we are being called synchronously
-    // to avoid piling up things on the stack
-    pna.nextTick(cb, er);
-    // this can emit finish, and it will always happen
-    // after error
-    pna.nextTick(finishMaybe, stream, state);
-    stream._writableState.errorEmitted = true;
-    stream.emit('error', er);
-  } else {
-    // the caller expect this to happen before if
-    // it is async
-    cb(er);
-    stream._writableState.errorEmitted = true;
-    stream.emit('error', er);
-    // this can emit finish, but finish must
-    // always follow error
-    finishMaybe(stream, state);
-  }
-}
-
-function onwriteStateUpdate(state) {
-  state.writing = false;
-  state.writecb = null;
-  state.length -= state.writelen;
-  state.writelen = 0;
-}
-
-function onwrite(stream, er) {
-  var state = stream._writableState;
-  var sync = state.sync;
-  var cb = state.writecb;
-
-  onwriteStateUpdate(state);
-
-  if (er) onwriteError(stream, state, sync, er, cb);else {
-    // Check if we're actually ready to finish, but don't emit yet
-    var finished = needFinish(state);
-
-    if (!finished && !state.corked && !state.bufferProcessing && state.bufferedRequest) {
-      clearBuffer(stream, state);
-    }
-
-    if (sync) {
-      /*<replacement>*/
-      asyncWrite(afterWrite, stream, state, finished, cb);
-      /*</replacement>*/
-    } else {
-      afterWrite(stream, state, finished, cb);
-    }
-  }
-}
-
-function afterWrite(stream, state, finished, cb) {
-  if (!finished) onwriteDrain(stream, state);
-  state.pendingcb--;
-  cb();
-  finishMaybe(stream, state);
-}
-
-// Must force callback to be called on nextTick, so that we don't
-// emit 'drain' before the write() consumer gets the 'false' return
-// value, and has a chance to attach a 'drain' listener.
-function onwriteDrain(stream, state) {
-  if (state.length === 0 && state.needDrain) {
-    state.needDrain = false;
-    stream.emit('drain');
-  }
-}
-
-// if there's something in the buffer waiting, then process it
-function clearBuffer(stream, state) {
-  state.bufferProcessing = true;
-  var entry = state.bufferedRequest;
-
-  if (stream._writev && entry && entry.next) {
-    // Fast case, write everything using _writev()
-    var l = state.bufferedRequestCount;
-    var buffer = new Array(l);
-    var holder = state.corkedRequestsFree;
-    holder.entry = entry;
-
-    var count = 0;
-    var allBuffers = true;
-    while (entry) {
-      buffer[count] = entry;
-      if (!entry.isBuf) allBuffers = false;
-      entry = entry.next;
-      count += 1;
-    }
-    buffer.allBuffers = allBuffers;
-
-    doWrite(stream, state, true, state.length, buffer, '', holder.finish);
-
-    // doWrite is almost always async, defer these to save a bit of time
-    // as the hot path ends with doWrite
-    state.pendingcb++;
-    state.lastBufferedRequest = null;
-    if (holder.next) {
-      state.corkedRequestsFree = holder.next;
-      holder.next = null;
-    } else {
-      state.corkedRequestsFree = new CorkedRequest(state);
-    }
-    state.bufferedRequestCount = 0;
-  } else {
-    // Slow case, write chunks one-by-one
-    while (entry) {
-      var chunk = entry.chunk;
-      var encoding = entry.encoding;
-      var cb = entry.callback;
-      var len = state.objectMode ? 1 : chunk.length;
-
-      doWrite(stream, state, false, len, chunk, encoding, cb);
-      entry = entry.next;
-      state.bufferedRequestCount--;
-      // if we didn't call the onwrite immediately, then
-      // it means that we need to wait until it does.
-      // also, that means that the chunk and cb are currently
-      // being processed, so move the buffer counter past them.
-      if (state.writing) {
-        break;
-      }
-    }
-
-    if (entry === null) state.lastBufferedRequest = null;
-  }
-
-  state.bufferedRequest = entry;
-  state.bufferProcessing = false;
-}
-
-Writable.prototype._write = function (chunk, encoding, cb) {
-  cb(new Error('_write() is not implemented'));
-};
-
-Writable.prototype._writev = null;
-
-Writable.prototype.end = function (chunk, encoding, cb) {
-  var state = this._writableState;
-
-  if (typeof chunk === 'function') {
-    cb = chunk;
-    chunk = null;
-    encoding = null;
-  } else if (typeof encoding === 'function') {
-    cb = encoding;
-    encoding = null;
-  }
-
-  if (chunk !== null && chunk !== undefined) this.write(chunk, encoding);
-
-  // .end() fully uncorks
-  if (state.corked) {
-    state.corked = 1;
-    this.uncork();
-  }
-
-  // ignore unnecessary end() calls.
-  if (!state.ending && !state.finished) endWritable(this, state, cb);
-};
-
-function needFinish(state) {
-  return state.ending && state.length === 0 && state.bufferedRequest === null && !state.finished && !state.writing;
-}
-function callFinal(stream, state) {
-  stream._final(function (err) {
-    state.pendingcb--;
-    if (err) {
-      stream.emit('error', err);
-    }
-    state.prefinished = true;
-    stream.emit('prefinish');
-    finishMaybe(stream, state);
-  });
-}
-function prefinish(stream, state) {
-  if (!state.prefinished && !state.finalCalled) {
-    if (typeof stream._final === 'function') {
-      state.pendingcb++;
-      state.finalCalled = true;
-      pna.nextTick(callFinal, stream, state);
-    } else {
-      state.prefinished = true;
-      stream.emit('prefinish');
-    }
-  }
-}
-
-function finishMaybe(stream, state) {
-  var need = needFinish(state);
-  if (need) {
-    prefinish(stream, state);
-    if (state.pendingcb === 0) {
-      state.finished = true;
-      stream.emit('finish');
-    }
-  }
-  return need;
-}
-
-function endWritable(stream, state, cb) {
-  state.ending = true;
-  finishMaybe(stream, state);
-  if (cb) {
-    if (state.finished) pna.nextTick(cb);else stream.once('finish', cb);
-  }
-  state.ended = true;
-  stream.writable = false;
-}
-
-function onCorkedFinish(corkReq, state, err) {
-  var entry = corkReq.entry;
-  corkReq.entry = null;
-  while (entry) {
-    var cb = entry.callback;
-    state.pendingcb--;
-    cb(err);
-    entry = entry.next;
-  }
-  if (state.corkedRequestsFree) {
-    state.corkedRequestsFree.next = corkReq;
-  } else {
-    state.corkedRequestsFree = corkReq;
-  }
-}
-
-Object.defineProperty(Writable.prototype, 'destroyed', {
-  get: function () {
-    if (this._writableState === undefined) {
-      return false;
-    }
-    return this._writableState.destroyed;
-  },
-  set: function (value) {
-    // we ignore the value if the stream
-    // has not been initialized yet
-    if (!this._writableState) {
-      return;
-    }
-
-    // backward compatibility, the user is explicitly
-    // managing destroyed
-    this._writableState.destroyed = value;
-  }
-});
-
-Writable.prototype.destroy = destroyImpl.destroy;
-Writable.prototype._undestroy = destroyImpl.undestroy;
-Writable.prototype._destroy = function (err, cb) {
-  this.end();
-  cb(err);
-};
-}).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("timers").setImmediate)
-},{"./_stream_duplex":347,"./internal/streams/destroy":353,"./internal/streams/stream":354,"_process":332,"core-util-is":242,"inherits":310,"process-nextick-args":331,"safe-buffer":355,"timers":374,"util-deprecate":377}],352:[function(require,module,exports){
-'use strict';
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-var Buffer = require('safe-buffer').Buffer;
-var util = require('util');
-
-function copyBuffer(src, target, offset) {
-  src.copy(target, offset);
-}
-
-module.exports = function () {
-  function BufferList() {
-    _classCallCheck(this, BufferList);
-
-    this.head = null;
-    this.tail = null;
-    this.length = 0;
-  }
-
-  BufferList.prototype.push = function push(v) {
-    var entry = { data: v, next: null };
-    if (this.length > 0) this.tail.next = entry;else this.head = entry;
-    this.tail = entry;
-    ++this.length;
-  };
-
-  BufferList.prototype.unshift = function unshift(v) {
-    var entry = { data: v, next: this.head };
-    if (this.length === 0) this.tail = entry;
-    this.head = entry;
-    ++this.length;
-  };
-
-  BufferList.prototype.shift = function shift() {
-    if (this.length === 0) return;
-    var ret = this.head.data;
-    if (this.length === 1) this.head = this.tail = null;else this.head = this.head.next;
-    --this.length;
-    return ret;
-  };
-
-  BufferList.prototype.clear = function clear() {
-    this.head = this.tail = null;
-    this.length = 0;
-  };
-
-  BufferList.prototype.join = function join(s) {
-    if (this.length === 0) return '';
-    var p = this.head;
-    var ret = '' + p.data;
-    while (p = p.next) {
-      ret += s + p.data;
-    }return ret;
-  };
-
-  BufferList.prototype.concat = function concat(n) {
-    if (this.length === 0) return Buffer.alloc(0);
-    if (this.length === 1) return this.head.data;
-    var ret = Buffer.allocUnsafe(n >>> 0);
-    var p = this.head;
-    var i = 0;
-    while (p) {
-      copyBuffer(p.data, ret, i);
-      i += p.data.length;
-      p = p.next;
-    }
-    return ret;
-  };
-
-  return BufferList;
-}();
-
-if (util && util.inspect && util.inspect.custom) {
-  module.exports.prototype[util.inspect.custom] = function () {
-    var obj = util.inspect({ length: this.length });
-    return this.constructor.name + ' ' + obj;
-  };
-}
-},{"safe-buffer":355,"util":195}],353:[function(require,module,exports){
-'use strict';
-
-/*<replacement>*/
-
-var pna = require('process-nextick-args');
-/*</replacement>*/
-
-// undocumented cb() API, needed for core, not for public API
-function destroy(err, cb) {
-  var _this = this;
-
-  var readableDestroyed = this._readableState && this._readableState.destroyed;
-  var writableDestroyed = this._writableState && this._writableState.destroyed;
-
-  if (readableDestroyed || writableDestroyed) {
-    if (cb) {
-      cb(err);
-    } else if (err && (!this._writableState || !this._writableState.errorEmitted)) {
-      pna.nextTick(emitErrorNT, this, err);
-    }
-    return this;
-  }
-
-  // we set destroyed to true before firing error callbacks in order
-  // to make it re-entrance safe in case destroy() is called within callbacks
-
-  if (this._readableState) {
-    this._readableState.destroyed = true;
-  }
-
-  // if this is a duplex stream mark the writable part as destroyed as well
-  if (this._writableState) {
-    this._writableState.destroyed = true;
-  }
-
-  this._destroy(err || null, function (err) {
-    if (!cb && err) {
-      pna.nextTick(emitErrorNT, _this, err);
-      if (_this._writableState) {
-        _this._writableState.errorEmitted = true;
-      }
-    } else if (cb) {
-      cb(err);
-    }
-  });
-
-  return this;
-}
-
-function undestroy() {
-  if (this._readableState) {
-    this._readableState.destroyed = false;
-    this._readableState.reading = false;
-    this._readableState.ended = false;
-    this._readableState.endEmitted = false;
-  }
-
-  if (this._writableState) {
-    this._writableState.destroyed = false;
-    this._writableState.ended = false;
-    this._writableState.ending = false;
-    this._writableState.finished = false;
-    this._writableState.errorEmitted = false;
-  }
-}
-
-function emitErrorNT(self, err) {
-  self.emit('error', err);
-}
-
-module.exports = {
-  destroy: destroy,
-  undestroy: undestroy
-};
-},{"process-nextick-args":331}],354:[function(require,module,exports){
-arguments[4][236][0].apply(exports,arguments)
-},{"dup":236,"events":278}],355:[function(require,module,exports){
+},{"buffer":251,"hash-base":302,"inherits":332}],370:[function(require,module,exports){
+/*! safe-buffer. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
 /* eslint-disable node/no-deprecated-api */
 var buffer = require('buffer')
 var Buffer = buffer.Buffer
@@ -43913,6 +44468,8 @@ if (Buffer.from && Buffer.alloc && Buffer.allocUnsafe && Buffer.allocUnsafeSlow)
 function SafeBuffer (arg, encodingOrOffset, length) {
   return Buffer(arg, encodingOrOffset, length)
 }
+
+SafeBuffer.prototype = Object.create(Buffer.prototype)
 
 // Copy static methods from Buffer
 copyProps(Buffer, SafeBuffer)
@@ -43955,7 +44512,1057 @@ SafeBuffer.allocUnsafeSlow = function (size) {
   return buffer.SlowBuffer(size)
 }
 
-},{"buffer":240}],356:[function(require,module,exports){
+},{"buffer":251}],371:[function(require,module,exports){
+(function (process){(function (){
+/* eslint-disable node/no-deprecated-api */
+
+'use strict'
+
+var buffer = require('buffer')
+var Buffer = buffer.Buffer
+
+var safer = {}
+
+var key
+
+for (key in buffer) {
+  if (!buffer.hasOwnProperty(key)) continue
+  if (key === 'SlowBuffer' || key === 'Buffer') continue
+  safer[key] = buffer[key]
+}
+
+var Safer = safer.Buffer = {}
+for (key in Buffer) {
+  if (!Buffer.hasOwnProperty(key)) continue
+  if (key === 'allocUnsafe' || key === 'allocUnsafeSlow') continue
+  Safer[key] = Buffer[key]
+}
+
+safer.Buffer.prototype = Buffer.prototype
+
+if (!Safer.from || Safer.from === Uint8Array.from) {
+  Safer.from = function (value, encodingOrOffset, length) {
+    if (typeof value === 'number') {
+      throw new TypeError('The "value" argument must not be of type number. Received type ' + typeof value)
+    }
+    if (value && typeof value.length === 'undefined') {
+      throw new TypeError('The first argument must be one of type string, Buffer, ArrayBuffer, Array, or Array-like Object. Received type ' + typeof value)
+    }
+    return Buffer(value, encodingOrOffset, length)
+  }
+}
+
+if (!Safer.alloc) {
+  Safer.alloc = function (size, fill, encoding) {
+    if (typeof size !== 'number') {
+      throw new TypeError('The "size" argument must be of type number. Received type ' + typeof size)
+    }
+    if (size < 0 || size >= 2 * (1 << 30)) {
+      throw new RangeError('The value "' + size + '" is invalid for option "size"')
+    }
+    var buf = Buffer(size)
+    if (!fill || fill.length === 0) {
+      buf.fill(0)
+    } else if (typeof encoding === 'string') {
+      buf.fill(fill, encoding)
+    } else {
+      buf.fill(fill)
+    }
+    return buf
+  }
+}
+
+if (!safer.kStringMaxLength) {
+  try {
+    safer.kStringMaxLength = process.binding('buffer').kStringMaxLength
+  } catch (e) {
+    // we can't determine kStringMaxLength in environments where process.binding
+    // is unsupported, so let's not set it
+  }
+}
+
+if (!safer.constants) {
+  safer.constants = {
+    MAX_LENGTH: safer.kMaxLength
+  }
+  if (safer.kStringMaxLength) {
+    safer.constants.MAX_STRING_LENGTH = safer.kStringMaxLength
+  }
+}
+
+module.exports = safer
+
+}).call(this)}).call(this,require('_process'))
+},{"_process":355,"buffer":251}],372:[function(require,module,exports){
+var Buffer = require('safe-buffer').Buffer
+
+// prototype class for hash functions
+function Hash (blockSize, finalSize) {
+  this._block = Buffer.alloc(blockSize)
+  this._finalSize = finalSize
+  this._blockSize = blockSize
+  this._len = 0
+}
+
+Hash.prototype.update = function (data, enc) {
+  if (typeof data === 'string') {
+    enc = enc || 'utf8'
+    data = Buffer.from(data, enc)
+  }
+
+  var block = this._block
+  var blockSize = this._blockSize
+  var length = data.length
+  var accum = this._len
+
+  for (var offset = 0; offset < length;) {
+    var assigned = accum % blockSize
+    var remainder = Math.min(length - offset, blockSize - assigned)
+
+    for (var i = 0; i < remainder; i++) {
+      block[assigned + i] = data[offset + i]
+    }
+
+    accum += remainder
+    offset += remainder
+
+    if ((accum % blockSize) === 0) {
+      this._update(block)
+    }
+  }
+
+  this._len += length
+  return this
+}
+
+Hash.prototype.digest = function (enc) {
+  var rem = this._len % this._blockSize
+
+  this._block[rem] = 0x80
+
+  // zero (rem + 1) trailing bits, where (rem + 1) is the smallest
+  // non-negative solution to the equation (length + 1 + (rem + 1)) === finalSize mod blockSize
+  this._block.fill(0, rem + 1)
+
+  if (rem >= this._finalSize) {
+    this._update(this._block)
+    this._block.fill(0)
+  }
+
+  var bits = this._len * 8
+
+  // uint32
+  if (bits <= 0xffffffff) {
+    this._block.writeUInt32BE(bits, this._blockSize - 4)
+
+  // uint64
+  } else {
+    var lowBits = (bits & 0xffffffff) >>> 0
+    var highBits = (bits - lowBits) / 0x100000000
+
+    this._block.writeUInt32BE(highBits, this._blockSize - 8)
+    this._block.writeUInt32BE(lowBits, this._blockSize - 4)
+  }
+
+  this._update(this._block)
+  var hash = this._hash()
+
+  return enc ? hash.toString(enc) : hash
+}
+
+Hash.prototype._update = function () {
+  throw new Error('_update must be implemented by subclass')
+}
+
+module.exports = Hash
+
+},{"safe-buffer":370}],373:[function(require,module,exports){
+var exports = module.exports = function SHA (algorithm) {
+  algorithm = algorithm.toLowerCase()
+
+  var Algorithm = exports[algorithm]
+  if (!Algorithm) throw new Error(algorithm + ' is not supported (we accept pull requests)')
+
+  return new Algorithm()
+}
+
+exports.sha = require('./sha')
+exports.sha1 = require('./sha1')
+exports.sha224 = require('./sha224')
+exports.sha256 = require('./sha256')
+exports.sha384 = require('./sha384')
+exports.sha512 = require('./sha512')
+
+},{"./sha":374,"./sha1":375,"./sha224":376,"./sha256":377,"./sha384":378,"./sha512":379}],374:[function(require,module,exports){
+/*
+ * A JavaScript implementation of the Secure Hash Algorithm, SHA-0, as defined
+ * in FIPS PUB 180-1
+ * This source code is derived from sha1.js of the same repository.
+ * The difference between SHA-0 and SHA-1 is just a bitwise rotate left
+ * operation was added.
+ */
+
+var inherits = require('inherits')
+var Hash = require('./hash')
+var Buffer = require('safe-buffer').Buffer
+
+var K = [
+  0x5a827999, 0x6ed9eba1, 0x8f1bbcdc | 0, 0xca62c1d6 | 0
+]
+
+var W = new Array(80)
+
+function Sha () {
+  this.init()
+  this._w = W
+
+  Hash.call(this, 64, 56)
+}
+
+inherits(Sha, Hash)
+
+Sha.prototype.init = function () {
+  this._a = 0x67452301
+  this._b = 0xefcdab89
+  this._c = 0x98badcfe
+  this._d = 0x10325476
+  this._e = 0xc3d2e1f0
+
+  return this
+}
+
+function rotl5 (num) {
+  return (num << 5) | (num >>> 27)
+}
+
+function rotl30 (num) {
+  return (num << 30) | (num >>> 2)
+}
+
+function ft (s, b, c, d) {
+  if (s === 0) return (b & c) | ((~b) & d)
+  if (s === 2) return (b & c) | (b & d) | (c & d)
+  return b ^ c ^ d
+}
+
+Sha.prototype._update = function (M) {
+  var W = this._w
+
+  var a = this._a | 0
+  var b = this._b | 0
+  var c = this._c | 0
+  var d = this._d | 0
+  var e = this._e | 0
+
+  for (var i = 0; i < 16; ++i) W[i] = M.readInt32BE(i * 4)
+  for (; i < 80; ++i) W[i] = W[i - 3] ^ W[i - 8] ^ W[i - 14] ^ W[i - 16]
+
+  for (var j = 0; j < 80; ++j) {
+    var s = ~~(j / 20)
+    var t = (rotl5(a) + ft(s, b, c, d) + e + W[j] + K[s]) | 0
+
+    e = d
+    d = c
+    c = rotl30(b)
+    b = a
+    a = t
+  }
+
+  this._a = (a + this._a) | 0
+  this._b = (b + this._b) | 0
+  this._c = (c + this._c) | 0
+  this._d = (d + this._d) | 0
+  this._e = (e + this._e) | 0
+}
+
+Sha.prototype._hash = function () {
+  var H = Buffer.allocUnsafe(20)
+
+  H.writeInt32BE(this._a | 0, 0)
+  H.writeInt32BE(this._b | 0, 4)
+  H.writeInt32BE(this._c | 0, 8)
+  H.writeInt32BE(this._d | 0, 12)
+  H.writeInt32BE(this._e | 0, 16)
+
+  return H
+}
+
+module.exports = Sha
+
+},{"./hash":372,"inherits":332,"safe-buffer":370}],375:[function(require,module,exports){
+/*
+ * A JavaScript implementation of the Secure Hash Algorithm, SHA-1, as defined
+ * in FIPS PUB 180-1
+ * Version 2.1a Copyright Paul Johnston 2000 - 2002.
+ * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
+ * Distributed under the BSD License
+ * See http://pajhome.org.uk/crypt/md5 for details.
+ */
+
+var inherits = require('inherits')
+var Hash = require('./hash')
+var Buffer = require('safe-buffer').Buffer
+
+var K = [
+  0x5a827999, 0x6ed9eba1, 0x8f1bbcdc | 0, 0xca62c1d6 | 0
+]
+
+var W = new Array(80)
+
+function Sha1 () {
+  this.init()
+  this._w = W
+
+  Hash.call(this, 64, 56)
+}
+
+inherits(Sha1, Hash)
+
+Sha1.prototype.init = function () {
+  this._a = 0x67452301
+  this._b = 0xefcdab89
+  this._c = 0x98badcfe
+  this._d = 0x10325476
+  this._e = 0xc3d2e1f0
+
+  return this
+}
+
+function rotl1 (num) {
+  return (num << 1) | (num >>> 31)
+}
+
+function rotl5 (num) {
+  return (num << 5) | (num >>> 27)
+}
+
+function rotl30 (num) {
+  return (num << 30) | (num >>> 2)
+}
+
+function ft (s, b, c, d) {
+  if (s === 0) return (b & c) | ((~b) & d)
+  if (s === 2) return (b & c) | (b & d) | (c & d)
+  return b ^ c ^ d
+}
+
+Sha1.prototype._update = function (M) {
+  var W = this._w
+
+  var a = this._a | 0
+  var b = this._b | 0
+  var c = this._c | 0
+  var d = this._d | 0
+  var e = this._e | 0
+
+  for (var i = 0; i < 16; ++i) W[i] = M.readInt32BE(i * 4)
+  for (; i < 80; ++i) W[i] = rotl1(W[i - 3] ^ W[i - 8] ^ W[i - 14] ^ W[i - 16])
+
+  for (var j = 0; j < 80; ++j) {
+    var s = ~~(j / 20)
+    var t = (rotl5(a) + ft(s, b, c, d) + e + W[j] + K[s]) | 0
+
+    e = d
+    d = c
+    c = rotl30(b)
+    b = a
+    a = t
+  }
+
+  this._a = (a + this._a) | 0
+  this._b = (b + this._b) | 0
+  this._c = (c + this._c) | 0
+  this._d = (d + this._d) | 0
+  this._e = (e + this._e) | 0
+}
+
+Sha1.prototype._hash = function () {
+  var H = Buffer.allocUnsafe(20)
+
+  H.writeInt32BE(this._a | 0, 0)
+  H.writeInt32BE(this._b | 0, 4)
+  H.writeInt32BE(this._c | 0, 8)
+  H.writeInt32BE(this._d | 0, 12)
+  H.writeInt32BE(this._e | 0, 16)
+
+  return H
+}
+
+module.exports = Sha1
+
+},{"./hash":372,"inherits":332,"safe-buffer":370}],376:[function(require,module,exports){
+/**
+ * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
+ * in FIPS 180-2
+ * Version 2.2-beta Copyright Angel Marin, Paul Johnston 2000 - 2009.
+ * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
+ *
+ */
+
+var inherits = require('inherits')
+var Sha256 = require('./sha256')
+var Hash = require('./hash')
+var Buffer = require('safe-buffer').Buffer
+
+var W = new Array(64)
+
+function Sha224 () {
+  this.init()
+
+  this._w = W // new Array(64)
+
+  Hash.call(this, 64, 56)
+}
+
+inherits(Sha224, Sha256)
+
+Sha224.prototype.init = function () {
+  this._a = 0xc1059ed8
+  this._b = 0x367cd507
+  this._c = 0x3070dd17
+  this._d = 0xf70e5939
+  this._e = 0xffc00b31
+  this._f = 0x68581511
+  this._g = 0x64f98fa7
+  this._h = 0xbefa4fa4
+
+  return this
+}
+
+Sha224.prototype._hash = function () {
+  var H = Buffer.allocUnsafe(28)
+
+  H.writeInt32BE(this._a, 0)
+  H.writeInt32BE(this._b, 4)
+  H.writeInt32BE(this._c, 8)
+  H.writeInt32BE(this._d, 12)
+  H.writeInt32BE(this._e, 16)
+  H.writeInt32BE(this._f, 20)
+  H.writeInt32BE(this._g, 24)
+
+  return H
+}
+
+module.exports = Sha224
+
+},{"./hash":372,"./sha256":377,"inherits":332,"safe-buffer":370}],377:[function(require,module,exports){
+/**
+ * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
+ * in FIPS 180-2
+ * Version 2.2-beta Copyright Angel Marin, Paul Johnston 2000 - 2009.
+ * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
+ *
+ */
+
+var inherits = require('inherits')
+var Hash = require('./hash')
+var Buffer = require('safe-buffer').Buffer
+
+var K = [
+  0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5,
+  0x3956C25B, 0x59F111F1, 0x923F82A4, 0xAB1C5ED5,
+  0xD807AA98, 0x12835B01, 0x243185BE, 0x550C7DC3,
+  0x72BE5D74, 0x80DEB1FE, 0x9BDC06A7, 0xC19BF174,
+  0xE49B69C1, 0xEFBE4786, 0x0FC19DC6, 0x240CA1CC,
+  0x2DE92C6F, 0x4A7484AA, 0x5CB0A9DC, 0x76F988DA,
+  0x983E5152, 0xA831C66D, 0xB00327C8, 0xBF597FC7,
+  0xC6E00BF3, 0xD5A79147, 0x06CA6351, 0x14292967,
+  0x27B70A85, 0x2E1B2138, 0x4D2C6DFC, 0x53380D13,
+  0x650A7354, 0x766A0ABB, 0x81C2C92E, 0x92722C85,
+  0xA2BFE8A1, 0xA81A664B, 0xC24B8B70, 0xC76C51A3,
+  0xD192E819, 0xD6990624, 0xF40E3585, 0x106AA070,
+  0x19A4C116, 0x1E376C08, 0x2748774C, 0x34B0BCB5,
+  0x391C0CB3, 0x4ED8AA4A, 0x5B9CCA4F, 0x682E6FF3,
+  0x748F82EE, 0x78A5636F, 0x84C87814, 0x8CC70208,
+  0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2
+]
+
+var W = new Array(64)
+
+function Sha256 () {
+  this.init()
+
+  this._w = W // new Array(64)
+
+  Hash.call(this, 64, 56)
+}
+
+inherits(Sha256, Hash)
+
+Sha256.prototype.init = function () {
+  this._a = 0x6a09e667
+  this._b = 0xbb67ae85
+  this._c = 0x3c6ef372
+  this._d = 0xa54ff53a
+  this._e = 0x510e527f
+  this._f = 0x9b05688c
+  this._g = 0x1f83d9ab
+  this._h = 0x5be0cd19
+
+  return this
+}
+
+function ch (x, y, z) {
+  return z ^ (x & (y ^ z))
+}
+
+function maj (x, y, z) {
+  return (x & y) | (z & (x | y))
+}
+
+function sigma0 (x) {
+  return (x >>> 2 | x << 30) ^ (x >>> 13 | x << 19) ^ (x >>> 22 | x << 10)
+}
+
+function sigma1 (x) {
+  return (x >>> 6 | x << 26) ^ (x >>> 11 | x << 21) ^ (x >>> 25 | x << 7)
+}
+
+function gamma0 (x) {
+  return (x >>> 7 | x << 25) ^ (x >>> 18 | x << 14) ^ (x >>> 3)
+}
+
+function gamma1 (x) {
+  return (x >>> 17 | x << 15) ^ (x >>> 19 | x << 13) ^ (x >>> 10)
+}
+
+Sha256.prototype._update = function (M) {
+  var W = this._w
+
+  var a = this._a | 0
+  var b = this._b | 0
+  var c = this._c | 0
+  var d = this._d | 0
+  var e = this._e | 0
+  var f = this._f | 0
+  var g = this._g | 0
+  var h = this._h | 0
+
+  for (var i = 0; i < 16; ++i) W[i] = M.readInt32BE(i * 4)
+  for (; i < 64; ++i) W[i] = (gamma1(W[i - 2]) + W[i - 7] + gamma0(W[i - 15]) + W[i - 16]) | 0
+
+  for (var j = 0; j < 64; ++j) {
+    var T1 = (h + sigma1(e) + ch(e, f, g) + K[j] + W[j]) | 0
+    var T2 = (sigma0(a) + maj(a, b, c)) | 0
+
+    h = g
+    g = f
+    f = e
+    e = (d + T1) | 0
+    d = c
+    c = b
+    b = a
+    a = (T1 + T2) | 0
+  }
+
+  this._a = (a + this._a) | 0
+  this._b = (b + this._b) | 0
+  this._c = (c + this._c) | 0
+  this._d = (d + this._d) | 0
+  this._e = (e + this._e) | 0
+  this._f = (f + this._f) | 0
+  this._g = (g + this._g) | 0
+  this._h = (h + this._h) | 0
+}
+
+Sha256.prototype._hash = function () {
+  var H = Buffer.allocUnsafe(32)
+
+  H.writeInt32BE(this._a, 0)
+  H.writeInt32BE(this._b, 4)
+  H.writeInt32BE(this._c, 8)
+  H.writeInt32BE(this._d, 12)
+  H.writeInt32BE(this._e, 16)
+  H.writeInt32BE(this._f, 20)
+  H.writeInt32BE(this._g, 24)
+  H.writeInt32BE(this._h, 28)
+
+  return H
+}
+
+module.exports = Sha256
+
+},{"./hash":372,"inherits":332,"safe-buffer":370}],378:[function(require,module,exports){
+var inherits = require('inherits')
+var SHA512 = require('./sha512')
+var Hash = require('./hash')
+var Buffer = require('safe-buffer').Buffer
+
+var W = new Array(160)
+
+function Sha384 () {
+  this.init()
+  this._w = W
+
+  Hash.call(this, 128, 112)
+}
+
+inherits(Sha384, SHA512)
+
+Sha384.prototype.init = function () {
+  this._ah = 0xcbbb9d5d
+  this._bh = 0x629a292a
+  this._ch = 0x9159015a
+  this._dh = 0x152fecd8
+  this._eh = 0x67332667
+  this._fh = 0x8eb44a87
+  this._gh = 0xdb0c2e0d
+  this._hh = 0x47b5481d
+
+  this._al = 0xc1059ed8
+  this._bl = 0x367cd507
+  this._cl = 0x3070dd17
+  this._dl = 0xf70e5939
+  this._el = 0xffc00b31
+  this._fl = 0x68581511
+  this._gl = 0x64f98fa7
+  this._hl = 0xbefa4fa4
+
+  return this
+}
+
+Sha384.prototype._hash = function () {
+  var H = Buffer.allocUnsafe(48)
+
+  function writeInt64BE (h, l, offset) {
+    H.writeInt32BE(h, offset)
+    H.writeInt32BE(l, offset + 4)
+  }
+
+  writeInt64BE(this._ah, this._al, 0)
+  writeInt64BE(this._bh, this._bl, 8)
+  writeInt64BE(this._ch, this._cl, 16)
+  writeInt64BE(this._dh, this._dl, 24)
+  writeInt64BE(this._eh, this._el, 32)
+  writeInt64BE(this._fh, this._fl, 40)
+
+  return H
+}
+
+module.exports = Sha384
+
+},{"./hash":372,"./sha512":379,"inherits":332,"safe-buffer":370}],379:[function(require,module,exports){
+var inherits = require('inherits')
+var Hash = require('./hash')
+var Buffer = require('safe-buffer').Buffer
+
+var K = [
+  0x428a2f98, 0xd728ae22, 0x71374491, 0x23ef65cd,
+  0xb5c0fbcf, 0xec4d3b2f, 0xe9b5dba5, 0x8189dbbc,
+  0x3956c25b, 0xf348b538, 0x59f111f1, 0xb605d019,
+  0x923f82a4, 0xaf194f9b, 0xab1c5ed5, 0xda6d8118,
+  0xd807aa98, 0xa3030242, 0x12835b01, 0x45706fbe,
+  0x243185be, 0x4ee4b28c, 0x550c7dc3, 0xd5ffb4e2,
+  0x72be5d74, 0xf27b896f, 0x80deb1fe, 0x3b1696b1,
+  0x9bdc06a7, 0x25c71235, 0xc19bf174, 0xcf692694,
+  0xe49b69c1, 0x9ef14ad2, 0xefbe4786, 0x384f25e3,
+  0x0fc19dc6, 0x8b8cd5b5, 0x240ca1cc, 0x77ac9c65,
+  0x2de92c6f, 0x592b0275, 0x4a7484aa, 0x6ea6e483,
+  0x5cb0a9dc, 0xbd41fbd4, 0x76f988da, 0x831153b5,
+  0x983e5152, 0xee66dfab, 0xa831c66d, 0x2db43210,
+  0xb00327c8, 0x98fb213f, 0xbf597fc7, 0xbeef0ee4,
+  0xc6e00bf3, 0x3da88fc2, 0xd5a79147, 0x930aa725,
+  0x06ca6351, 0xe003826f, 0x14292967, 0x0a0e6e70,
+  0x27b70a85, 0x46d22ffc, 0x2e1b2138, 0x5c26c926,
+  0x4d2c6dfc, 0x5ac42aed, 0x53380d13, 0x9d95b3df,
+  0x650a7354, 0x8baf63de, 0x766a0abb, 0x3c77b2a8,
+  0x81c2c92e, 0x47edaee6, 0x92722c85, 0x1482353b,
+  0xa2bfe8a1, 0x4cf10364, 0xa81a664b, 0xbc423001,
+  0xc24b8b70, 0xd0f89791, 0xc76c51a3, 0x0654be30,
+  0xd192e819, 0xd6ef5218, 0xd6990624, 0x5565a910,
+  0xf40e3585, 0x5771202a, 0x106aa070, 0x32bbd1b8,
+  0x19a4c116, 0xb8d2d0c8, 0x1e376c08, 0x5141ab53,
+  0x2748774c, 0xdf8eeb99, 0x34b0bcb5, 0xe19b48a8,
+  0x391c0cb3, 0xc5c95a63, 0x4ed8aa4a, 0xe3418acb,
+  0x5b9cca4f, 0x7763e373, 0x682e6ff3, 0xd6b2b8a3,
+  0x748f82ee, 0x5defb2fc, 0x78a5636f, 0x43172f60,
+  0x84c87814, 0xa1f0ab72, 0x8cc70208, 0x1a6439ec,
+  0x90befffa, 0x23631e28, 0xa4506ceb, 0xde82bde9,
+  0xbef9a3f7, 0xb2c67915, 0xc67178f2, 0xe372532b,
+  0xca273ece, 0xea26619c, 0xd186b8c7, 0x21c0c207,
+  0xeada7dd6, 0xcde0eb1e, 0xf57d4f7f, 0xee6ed178,
+  0x06f067aa, 0x72176fba, 0x0a637dc5, 0xa2c898a6,
+  0x113f9804, 0xbef90dae, 0x1b710b35, 0x131c471b,
+  0x28db77f5, 0x23047d84, 0x32caab7b, 0x40c72493,
+  0x3c9ebe0a, 0x15c9bebc, 0x431d67c4, 0x9c100d4c,
+  0x4cc5d4be, 0xcb3e42b6, 0x597f299c, 0xfc657e2a,
+  0x5fcb6fab, 0x3ad6faec, 0x6c44198c, 0x4a475817
+]
+
+var W = new Array(160)
+
+function Sha512 () {
+  this.init()
+  this._w = W
+
+  Hash.call(this, 128, 112)
+}
+
+inherits(Sha512, Hash)
+
+Sha512.prototype.init = function () {
+  this._ah = 0x6a09e667
+  this._bh = 0xbb67ae85
+  this._ch = 0x3c6ef372
+  this._dh = 0xa54ff53a
+  this._eh = 0x510e527f
+  this._fh = 0x9b05688c
+  this._gh = 0x1f83d9ab
+  this._hh = 0x5be0cd19
+
+  this._al = 0xf3bcc908
+  this._bl = 0x84caa73b
+  this._cl = 0xfe94f82b
+  this._dl = 0x5f1d36f1
+  this._el = 0xade682d1
+  this._fl = 0x2b3e6c1f
+  this._gl = 0xfb41bd6b
+  this._hl = 0x137e2179
+
+  return this
+}
+
+function Ch (x, y, z) {
+  return z ^ (x & (y ^ z))
+}
+
+function maj (x, y, z) {
+  return (x & y) | (z & (x | y))
+}
+
+function sigma0 (x, xl) {
+  return (x >>> 28 | xl << 4) ^ (xl >>> 2 | x << 30) ^ (xl >>> 7 | x << 25)
+}
+
+function sigma1 (x, xl) {
+  return (x >>> 14 | xl << 18) ^ (x >>> 18 | xl << 14) ^ (xl >>> 9 | x << 23)
+}
+
+function Gamma0 (x, xl) {
+  return (x >>> 1 | xl << 31) ^ (x >>> 8 | xl << 24) ^ (x >>> 7)
+}
+
+function Gamma0l (x, xl) {
+  return (x >>> 1 | xl << 31) ^ (x >>> 8 | xl << 24) ^ (x >>> 7 | xl << 25)
+}
+
+function Gamma1 (x, xl) {
+  return (x >>> 19 | xl << 13) ^ (xl >>> 29 | x << 3) ^ (x >>> 6)
+}
+
+function Gamma1l (x, xl) {
+  return (x >>> 19 | xl << 13) ^ (xl >>> 29 | x << 3) ^ (x >>> 6 | xl << 26)
+}
+
+function getCarry (a, b) {
+  return (a >>> 0) < (b >>> 0) ? 1 : 0
+}
+
+Sha512.prototype._update = function (M) {
+  var W = this._w
+
+  var ah = this._ah | 0
+  var bh = this._bh | 0
+  var ch = this._ch | 0
+  var dh = this._dh | 0
+  var eh = this._eh | 0
+  var fh = this._fh | 0
+  var gh = this._gh | 0
+  var hh = this._hh | 0
+
+  var al = this._al | 0
+  var bl = this._bl | 0
+  var cl = this._cl | 0
+  var dl = this._dl | 0
+  var el = this._el | 0
+  var fl = this._fl | 0
+  var gl = this._gl | 0
+  var hl = this._hl | 0
+
+  for (var i = 0; i < 32; i += 2) {
+    W[i] = M.readInt32BE(i * 4)
+    W[i + 1] = M.readInt32BE(i * 4 + 4)
+  }
+  for (; i < 160; i += 2) {
+    var xh = W[i - 15 * 2]
+    var xl = W[i - 15 * 2 + 1]
+    var gamma0 = Gamma0(xh, xl)
+    var gamma0l = Gamma0l(xl, xh)
+
+    xh = W[i - 2 * 2]
+    xl = W[i - 2 * 2 + 1]
+    var gamma1 = Gamma1(xh, xl)
+    var gamma1l = Gamma1l(xl, xh)
+
+    // W[i] = gamma0 + W[i - 7] + gamma1 + W[i - 16]
+    var Wi7h = W[i - 7 * 2]
+    var Wi7l = W[i - 7 * 2 + 1]
+
+    var Wi16h = W[i - 16 * 2]
+    var Wi16l = W[i - 16 * 2 + 1]
+
+    var Wil = (gamma0l + Wi7l) | 0
+    var Wih = (gamma0 + Wi7h + getCarry(Wil, gamma0l)) | 0
+    Wil = (Wil + gamma1l) | 0
+    Wih = (Wih + gamma1 + getCarry(Wil, gamma1l)) | 0
+    Wil = (Wil + Wi16l) | 0
+    Wih = (Wih + Wi16h + getCarry(Wil, Wi16l)) | 0
+
+    W[i] = Wih
+    W[i + 1] = Wil
+  }
+
+  for (var j = 0; j < 160; j += 2) {
+    Wih = W[j]
+    Wil = W[j + 1]
+
+    var majh = maj(ah, bh, ch)
+    var majl = maj(al, bl, cl)
+
+    var sigma0h = sigma0(ah, al)
+    var sigma0l = sigma0(al, ah)
+    var sigma1h = sigma1(eh, el)
+    var sigma1l = sigma1(el, eh)
+
+    // t1 = h + sigma1 + ch + K[j] + W[j]
+    var Kih = K[j]
+    var Kil = K[j + 1]
+
+    var chh = Ch(eh, fh, gh)
+    var chl = Ch(el, fl, gl)
+
+    var t1l = (hl + sigma1l) | 0
+    var t1h = (hh + sigma1h + getCarry(t1l, hl)) | 0
+    t1l = (t1l + chl) | 0
+    t1h = (t1h + chh + getCarry(t1l, chl)) | 0
+    t1l = (t1l + Kil) | 0
+    t1h = (t1h + Kih + getCarry(t1l, Kil)) | 0
+    t1l = (t1l + Wil) | 0
+    t1h = (t1h + Wih + getCarry(t1l, Wil)) | 0
+
+    // t2 = sigma0 + maj
+    var t2l = (sigma0l + majl) | 0
+    var t2h = (sigma0h + majh + getCarry(t2l, sigma0l)) | 0
+
+    hh = gh
+    hl = gl
+    gh = fh
+    gl = fl
+    fh = eh
+    fl = el
+    el = (dl + t1l) | 0
+    eh = (dh + t1h + getCarry(el, dl)) | 0
+    dh = ch
+    dl = cl
+    ch = bh
+    cl = bl
+    bh = ah
+    bl = al
+    al = (t1l + t2l) | 0
+    ah = (t1h + t2h + getCarry(al, t1l)) | 0
+  }
+
+  this._al = (this._al + al) | 0
+  this._bl = (this._bl + bl) | 0
+  this._cl = (this._cl + cl) | 0
+  this._dl = (this._dl + dl) | 0
+  this._el = (this._el + el) | 0
+  this._fl = (this._fl + fl) | 0
+  this._gl = (this._gl + gl) | 0
+  this._hl = (this._hl + hl) | 0
+
+  this._ah = (this._ah + ah + getCarry(this._al, al)) | 0
+  this._bh = (this._bh + bh + getCarry(this._bl, bl)) | 0
+  this._ch = (this._ch + ch + getCarry(this._cl, cl)) | 0
+  this._dh = (this._dh + dh + getCarry(this._dl, dl)) | 0
+  this._eh = (this._eh + eh + getCarry(this._el, el)) | 0
+  this._fh = (this._fh + fh + getCarry(this._fl, fl)) | 0
+  this._gh = (this._gh + gh + getCarry(this._gl, gl)) | 0
+  this._hh = (this._hh + hh + getCarry(this._hl, hl)) | 0
+}
+
+Sha512.prototype._hash = function () {
+  var H = Buffer.allocUnsafe(64)
+
+  function writeInt64BE (h, l, offset) {
+    H.writeInt32BE(h, offset)
+    H.writeInt32BE(l, offset + 4)
+  }
+
+  writeInt64BE(this._ah, this._al, 0)
+  writeInt64BE(this._bh, this._bl, 8)
+  writeInt64BE(this._ch, this._cl, 16)
+  writeInt64BE(this._dh, this._dl, 24)
+  writeInt64BE(this._eh, this._el, 32)
+  writeInt64BE(this._fh, this._fl, 40)
+  writeInt64BE(this._gh, this._gl, 48)
+  writeInt64BE(this._hh, this._hl, 56)
+
+  return H
+}
+
+module.exports = Sha512
+
+},{"./hash":372,"inherits":332,"safe-buffer":370}],380:[function(require,module,exports){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+module.exports = Stream;
+
+var EE = require('events').EventEmitter;
+var inherits = require('inherits');
+
+inherits(Stream, EE);
+Stream.Readable = require('readable-stream/lib/_stream_readable.js');
+Stream.Writable = require('readable-stream/lib/_stream_writable.js');
+Stream.Duplex = require('readable-stream/lib/_stream_duplex.js');
+Stream.Transform = require('readable-stream/lib/_stream_transform.js');
+Stream.PassThrough = require('readable-stream/lib/_stream_passthrough.js');
+Stream.finished = require('readable-stream/lib/internal/streams/end-of-stream.js')
+Stream.pipeline = require('readable-stream/lib/internal/streams/pipeline.js')
+
+// Backwards-compat with node 0.4.x
+Stream.Stream = Stream;
+
+
+
+// old-style streams.  Note that the pipe method (the only relevant
+// part of this class) is overridden in the Readable class.
+
+function Stream() {
+  EE.call(this);
+}
+
+Stream.prototype.pipe = function(dest, options) {
+  var source = this;
+
+  function ondata(chunk) {
+    if (dest.writable) {
+      if (false === dest.write(chunk) && source.pause) {
+        source.pause();
+      }
+    }
+  }
+
+  source.on('data', ondata);
+
+  function ondrain() {
+    if (source.readable && source.resume) {
+      source.resume();
+    }
+  }
+
+  dest.on('drain', ondrain);
+
+  // If the 'end' option is not supplied, dest.end() will be called when
+  // source gets the 'end' or 'close' events.  Only dest.end() once.
+  if (!dest._isStdio && (!options || options.end !== false)) {
+    source.on('end', onend);
+    source.on('close', onclose);
+  }
+
+  var didOnEnd = false;
+  function onend() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    dest.end();
+  }
+
+
+  function onclose() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    if (typeof dest.destroy === 'function') dest.destroy();
+  }
+
+  // don't leave dangling pipes when there are errors.
+  function onerror(er) {
+    cleanup();
+    if (EE.listenerCount(this, 'error') === 0) {
+      throw er; // Unhandled stream error in pipe.
+    }
+  }
+
+  source.on('error', onerror);
+  dest.on('error', onerror);
+
+  // remove all the event listeners that were added.
+  function cleanup() {
+    source.removeListener('data', ondata);
+    dest.removeListener('drain', ondrain);
+
+    source.removeListener('end', onend);
+    source.removeListener('close', onclose);
+
+    source.removeListener('error', onerror);
+    dest.removeListener('error', onerror);
+
+    source.removeListener('end', cleanup);
+    source.removeListener('close', cleanup);
+
+    dest.removeListener('close', cleanup);
+  }
+
+  source.on('end', cleanup);
+  source.on('close', cleanup);
+
+  dest.on('close', cleanup);
+
+  dest.emit('pipe', source);
+
+  // Allow for unix-like usage: A.pipe(B).pipe(C)
+  return dest;
+};
+
+},{"events":292,"inherits":332,"readable-stream/lib/_stream_duplex.js":382,"readable-stream/lib/_stream_passthrough.js":383,"readable-stream/lib/_stream_readable.js":384,"readable-stream/lib/_stream_transform.js":385,"readable-stream/lib/_stream_writable.js":386,"readable-stream/lib/internal/streams/end-of-stream.js":390,"readable-stream/lib/internal/streams/pipeline.js":392}],381:[function(require,module,exports){
+arguments[4][234][0].apply(exports,arguments)
+},{"dup":234}],382:[function(require,module,exports){
+arguments[4][235][0].apply(exports,arguments)
+},{"./_stream_readable":384,"./_stream_writable":386,"_process":355,"dup":235,"inherits":332}],383:[function(require,module,exports){
+arguments[4][236][0].apply(exports,arguments)
+},{"./_stream_transform":385,"dup":236,"inherits":332}],384:[function(require,module,exports){
+arguments[4][237][0].apply(exports,arguments)
+},{"../errors":381,"./_stream_duplex":382,"./internal/streams/async_iterator":387,"./internal/streams/buffer_list":388,"./internal/streams/destroy":389,"./internal/streams/from":391,"./internal/streams/state":393,"./internal/streams/stream":394,"_process":355,"buffer":251,"dup":237,"events":292,"inherits":332,"string_decoder/":395,"util":206}],385:[function(require,module,exports){
+arguments[4][238][0].apply(exports,arguments)
+},{"../errors":381,"./_stream_duplex":382,"dup":238,"inherits":332}],386:[function(require,module,exports){
+arguments[4][239][0].apply(exports,arguments)
+},{"../errors":381,"./_stream_duplex":382,"./internal/streams/destroy":389,"./internal/streams/state":393,"./internal/streams/stream":394,"_process":355,"buffer":251,"dup":239,"inherits":332,"util-deprecate":399}],387:[function(require,module,exports){
+arguments[4][240][0].apply(exports,arguments)
+},{"./end-of-stream":390,"_process":355,"dup":240}],388:[function(require,module,exports){
+arguments[4][241][0].apply(exports,arguments)
+},{"buffer":251,"dup":241,"util":206}],389:[function(require,module,exports){
+arguments[4][242][0].apply(exports,arguments)
+},{"_process":355,"dup":242}],390:[function(require,module,exports){
+arguments[4][243][0].apply(exports,arguments)
+},{"../../../errors":381,"dup":243}],391:[function(require,module,exports){
+arguments[4][244][0].apply(exports,arguments)
+},{"dup":244}],392:[function(require,module,exports){
+arguments[4][245][0].apply(exports,arguments)
+},{"../../../errors":381,"./end-of-stream":390,"dup":245}],393:[function(require,module,exports){
+arguments[4][246][0].apply(exports,arguments)
+},{"../../../errors":381,"dup":246}],394:[function(require,module,exports){
+arguments[4][247][0].apply(exports,arguments)
+},{"dup":247,"events":292}],395:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -44252,1279 +45859,7 @@ function simpleWrite(buf) {
 function simpleEnd(buf) {
   return buf && buf.length ? this.write(buf) : '';
 }
-},{"safe-buffer":355}],357:[function(require,module,exports){
-module.exports = require('./readable').PassThrough
-
-},{"./readable":358}],358:[function(require,module,exports){
-exports = module.exports = require('./lib/_stream_readable.js');
-exports.Stream = exports;
-exports.Readable = exports;
-exports.Writable = require('./lib/_stream_writable.js');
-exports.Duplex = require('./lib/_stream_duplex.js');
-exports.Transform = require('./lib/_stream_transform.js');
-exports.PassThrough = require('./lib/_stream_passthrough.js');
-
-},{"./lib/_stream_duplex.js":347,"./lib/_stream_passthrough.js":348,"./lib/_stream_readable.js":349,"./lib/_stream_transform.js":350,"./lib/_stream_writable.js":351}],359:[function(require,module,exports){
-module.exports = require('./readable').Transform
-
-},{"./readable":358}],360:[function(require,module,exports){
-module.exports = require('./lib/_stream_writable.js');
-
-},{"./lib/_stream_writable.js":351}],361:[function(require,module,exports){
-'use strict'
-var Buffer = require('buffer').Buffer
-var inherits = require('inherits')
-var HashBase = require('hash-base')
-
-var ARRAY16 = new Array(16)
-
-var zl = [
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-  7, 4, 13, 1, 10, 6, 15, 3, 12, 0, 9, 5, 2, 14, 11, 8,
-  3, 10, 14, 4, 9, 15, 8, 1, 2, 7, 0, 6, 13, 11, 5, 12,
-  1, 9, 11, 10, 0, 8, 12, 4, 13, 3, 7, 15, 14, 5, 6, 2,
-  4, 0, 5, 9, 7, 12, 2, 10, 14, 1, 3, 8, 11, 6, 15, 13
-]
-
-var zr = [
-  5, 14, 7, 0, 9, 2, 11, 4, 13, 6, 15, 8, 1, 10, 3, 12,
-  6, 11, 3, 7, 0, 13, 5, 10, 14, 15, 8, 12, 4, 9, 1, 2,
-  15, 5, 1, 3, 7, 14, 6, 9, 11, 8, 12, 2, 10, 0, 4, 13,
-  8, 6, 4, 1, 3, 11, 15, 0, 5, 12, 2, 13, 9, 7, 10, 14,
-  12, 15, 10, 4, 1, 5, 8, 7, 6, 2, 13, 14, 0, 3, 9, 11
-]
-
-var sl = [
-  11, 14, 15, 12, 5, 8, 7, 9, 11, 13, 14, 15, 6, 7, 9, 8,
-  7, 6, 8, 13, 11, 9, 7, 15, 7, 12, 15, 9, 11, 7, 13, 12,
-  11, 13, 6, 7, 14, 9, 13, 15, 14, 8, 13, 6, 5, 12, 7, 5,
-  11, 12, 14, 15, 14, 15, 9, 8, 9, 14, 5, 6, 8, 6, 5, 12,
-  9, 15, 5, 11, 6, 8, 13, 12, 5, 12, 13, 14, 11, 8, 5, 6
-]
-
-var sr = [
-  8, 9, 9, 11, 13, 15, 15, 5, 7, 7, 8, 11, 14, 14, 12, 6,
-  9, 13, 15, 7, 12, 8, 9, 11, 7, 7, 12, 7, 6, 15, 13, 11,
-  9, 7, 15, 11, 8, 6, 6, 14, 12, 13, 5, 14, 13, 13, 7, 5,
-  15, 5, 8, 11, 14, 14, 6, 14, 6, 9, 12, 9, 12, 5, 15, 8,
-  8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11
-]
-
-var hl = [0x00000000, 0x5a827999, 0x6ed9eba1, 0x8f1bbcdc, 0xa953fd4e]
-var hr = [0x50a28be6, 0x5c4dd124, 0x6d703ef3, 0x7a6d76e9, 0x00000000]
-
-function RIPEMD160 () {
-  HashBase.call(this, 64)
-
-  // state
-  this._a = 0x67452301
-  this._b = 0xefcdab89
-  this._c = 0x98badcfe
-  this._d = 0x10325476
-  this._e = 0xc3d2e1f0
-}
-
-inherits(RIPEMD160, HashBase)
-
-RIPEMD160.prototype._update = function () {
-  var words = ARRAY16
-  for (var j = 0; j < 16; ++j) words[j] = this._block.readInt32LE(j * 4)
-
-  var al = this._a | 0
-  var bl = this._b | 0
-  var cl = this._c | 0
-  var dl = this._d | 0
-  var el = this._e | 0
-
-  var ar = this._a | 0
-  var br = this._b | 0
-  var cr = this._c | 0
-  var dr = this._d | 0
-  var er = this._e | 0
-
-  // computation
-  for (var i = 0; i < 80; i += 1) {
-    var tl
-    var tr
-    if (i < 16) {
-      tl = fn1(al, bl, cl, dl, el, words[zl[i]], hl[0], sl[i])
-      tr = fn5(ar, br, cr, dr, er, words[zr[i]], hr[0], sr[i])
-    } else if (i < 32) {
-      tl = fn2(al, bl, cl, dl, el, words[zl[i]], hl[1], sl[i])
-      tr = fn4(ar, br, cr, dr, er, words[zr[i]], hr[1], sr[i])
-    } else if (i < 48) {
-      tl = fn3(al, bl, cl, dl, el, words[zl[i]], hl[2], sl[i])
-      tr = fn3(ar, br, cr, dr, er, words[zr[i]], hr[2], sr[i])
-    } else if (i < 64) {
-      tl = fn4(al, bl, cl, dl, el, words[zl[i]], hl[3], sl[i])
-      tr = fn2(ar, br, cr, dr, er, words[zr[i]], hr[3], sr[i])
-    } else { // if (i<80) {
-      tl = fn5(al, bl, cl, dl, el, words[zl[i]], hl[4], sl[i])
-      tr = fn1(ar, br, cr, dr, er, words[zr[i]], hr[4], sr[i])
-    }
-
-    al = el
-    el = dl
-    dl = rotl(cl, 10)
-    cl = bl
-    bl = tl
-
-    ar = er
-    er = dr
-    dr = rotl(cr, 10)
-    cr = br
-    br = tr
-  }
-
-  // update state
-  var t = (this._b + cl + dr) | 0
-  this._b = (this._c + dl + er) | 0
-  this._c = (this._d + el + ar) | 0
-  this._d = (this._e + al + br) | 0
-  this._e = (this._a + bl + cr) | 0
-  this._a = t
-}
-
-RIPEMD160.prototype._digest = function () {
-  // create padding and handle blocks
-  this._block[this._blockOffset++] = 0x80
-  if (this._blockOffset > 56) {
-    this._block.fill(0, this._blockOffset, 64)
-    this._update()
-    this._blockOffset = 0
-  }
-
-  this._block.fill(0, this._blockOffset, 56)
-  this._block.writeUInt32LE(this._length[0], 56)
-  this._block.writeUInt32LE(this._length[1], 60)
-  this._update()
-
-  // produce result
-  var buffer = Buffer.alloc ? Buffer.alloc(20) : new Buffer(20)
-  buffer.writeInt32LE(this._a, 0)
-  buffer.writeInt32LE(this._b, 4)
-  buffer.writeInt32LE(this._c, 8)
-  buffer.writeInt32LE(this._d, 12)
-  buffer.writeInt32LE(this._e, 16)
-  return buffer
-}
-
-function rotl (x, n) {
-  return (x << n) | (x >>> (32 - n))
-}
-
-function fn1 (a, b, c, d, e, m, k, s) {
-  return (rotl((a + (b ^ c ^ d) + m + k) | 0, s) + e) | 0
-}
-
-function fn2 (a, b, c, d, e, m, k, s) {
-  return (rotl((a + ((b & c) | ((~b) & d)) + m + k) | 0, s) + e) | 0
-}
-
-function fn3 (a, b, c, d, e, m, k, s) {
-  return (rotl((a + ((b | (~c)) ^ d) + m + k) | 0, s) + e) | 0
-}
-
-function fn4 (a, b, c, d, e, m, k, s) {
-  return (rotl((a + ((b & d) | (c & (~d))) + m + k) | 0, s) + e) | 0
-}
-
-function fn5 (a, b, c, d, e, m, k, s) {
-  return (rotl((a + (b ^ (c | (~d))) + m + k) | 0, s) + e) | 0
-}
-
-module.exports = RIPEMD160
-
-},{"buffer":240,"hash-base":280,"inherits":310}],362:[function(require,module,exports){
-/*! safe-buffer. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
-/* eslint-disable node/no-deprecated-api */
-var buffer = require('buffer')
-var Buffer = buffer.Buffer
-
-// alternative to using Object.keys for old browsers
-function copyProps (src, dst) {
-  for (var key in src) {
-    dst[key] = src[key]
-  }
-}
-if (Buffer.from && Buffer.alloc && Buffer.allocUnsafe && Buffer.allocUnsafeSlow) {
-  module.exports = buffer
-} else {
-  // Copy properties from require('buffer')
-  copyProps(buffer, exports)
-  exports.Buffer = SafeBuffer
-}
-
-function SafeBuffer (arg, encodingOrOffset, length) {
-  return Buffer(arg, encodingOrOffset, length)
-}
-
-SafeBuffer.prototype = Object.create(Buffer.prototype)
-
-// Copy static methods from Buffer
-copyProps(Buffer, SafeBuffer)
-
-SafeBuffer.from = function (arg, encodingOrOffset, length) {
-  if (typeof arg === 'number') {
-    throw new TypeError('Argument must not be a number')
-  }
-  return Buffer(arg, encodingOrOffset, length)
-}
-
-SafeBuffer.alloc = function (size, fill, encoding) {
-  if (typeof size !== 'number') {
-    throw new TypeError('Argument must be a number')
-  }
-  var buf = Buffer(size)
-  if (fill !== undefined) {
-    if (typeof encoding === 'string') {
-      buf.fill(fill, encoding)
-    } else {
-      buf.fill(fill)
-    }
-  } else {
-    buf.fill(0)
-  }
-  return buf
-}
-
-SafeBuffer.allocUnsafe = function (size) {
-  if (typeof size !== 'number') {
-    throw new TypeError('Argument must be a number')
-  }
-  return Buffer(size)
-}
-
-SafeBuffer.allocUnsafeSlow = function (size) {
-  if (typeof size !== 'number') {
-    throw new TypeError('Argument must be a number')
-  }
-  return buffer.SlowBuffer(size)
-}
-
-},{"buffer":240}],363:[function(require,module,exports){
-(function (process){(function (){
-/* eslint-disable node/no-deprecated-api */
-
-'use strict'
-
-var buffer = require('buffer')
-var Buffer = buffer.Buffer
-
-var safer = {}
-
-var key
-
-for (key in buffer) {
-  if (!buffer.hasOwnProperty(key)) continue
-  if (key === 'SlowBuffer' || key === 'Buffer') continue
-  safer[key] = buffer[key]
-}
-
-var Safer = safer.Buffer = {}
-for (key in Buffer) {
-  if (!Buffer.hasOwnProperty(key)) continue
-  if (key === 'allocUnsafe' || key === 'allocUnsafeSlow') continue
-  Safer[key] = Buffer[key]
-}
-
-safer.Buffer.prototype = Buffer.prototype
-
-if (!Safer.from || Safer.from === Uint8Array.from) {
-  Safer.from = function (value, encodingOrOffset, length) {
-    if (typeof value === 'number') {
-      throw new TypeError('The "value" argument must not be of type number. Received type ' + typeof value)
-    }
-    if (value && typeof value.length === 'undefined') {
-      throw new TypeError('The first argument must be one of type string, Buffer, ArrayBuffer, Array, or Array-like Object. Received type ' + typeof value)
-    }
-    return Buffer(value, encodingOrOffset, length)
-  }
-}
-
-if (!Safer.alloc) {
-  Safer.alloc = function (size, fill, encoding) {
-    if (typeof size !== 'number') {
-      throw new TypeError('The "size" argument must be of type number. Received type ' + typeof size)
-    }
-    if (size < 0 || size >= 2 * (1 << 30)) {
-      throw new RangeError('The value "' + size + '" is invalid for option "size"')
-    }
-    var buf = Buffer(size)
-    if (!fill || fill.length === 0) {
-      buf.fill(0)
-    } else if (typeof encoding === 'string') {
-      buf.fill(fill, encoding)
-    } else {
-      buf.fill(fill)
-    }
-    return buf
-  }
-}
-
-if (!safer.kStringMaxLength) {
-  try {
-    safer.kStringMaxLength = process.binding('buffer').kStringMaxLength
-  } catch (e) {
-    // we can't determine kStringMaxLength in environments where process.binding
-    // is unsupported, so let's not set it
-  }
-}
-
-if (!safer.constants) {
-  safer.constants = {
-    MAX_LENGTH: safer.kMaxLength
-  }
-  if (safer.kStringMaxLength) {
-    safer.constants.MAX_STRING_LENGTH = safer.kStringMaxLength
-  }
-}
-
-module.exports = safer
-
-}).call(this)}).call(this,require('_process'))
-},{"_process":332,"buffer":240}],364:[function(require,module,exports){
-var Buffer = require('safe-buffer').Buffer
-
-// prototype class for hash functions
-function Hash (blockSize, finalSize) {
-  this._block = Buffer.alloc(blockSize)
-  this._finalSize = finalSize
-  this._blockSize = blockSize
-  this._len = 0
-}
-
-Hash.prototype.update = function (data, enc) {
-  if (typeof data === 'string') {
-    enc = enc || 'utf8'
-    data = Buffer.from(data, enc)
-  }
-
-  var block = this._block
-  var blockSize = this._blockSize
-  var length = data.length
-  var accum = this._len
-
-  for (var offset = 0; offset < length;) {
-    var assigned = accum % blockSize
-    var remainder = Math.min(length - offset, blockSize - assigned)
-
-    for (var i = 0; i < remainder; i++) {
-      block[assigned + i] = data[offset + i]
-    }
-
-    accum += remainder
-    offset += remainder
-
-    if ((accum % blockSize) === 0) {
-      this._update(block)
-    }
-  }
-
-  this._len += length
-  return this
-}
-
-Hash.prototype.digest = function (enc) {
-  var rem = this._len % this._blockSize
-
-  this._block[rem] = 0x80
-
-  // zero (rem + 1) trailing bits, where (rem + 1) is the smallest
-  // non-negative solution to the equation (length + 1 + (rem + 1)) === finalSize mod blockSize
-  this._block.fill(0, rem + 1)
-
-  if (rem >= this._finalSize) {
-    this._update(this._block)
-    this._block.fill(0)
-  }
-
-  var bits = this._len * 8
-
-  // uint32
-  if (bits <= 0xffffffff) {
-    this._block.writeUInt32BE(bits, this._blockSize - 4)
-
-  // uint64
-  } else {
-    var lowBits = (bits & 0xffffffff) >>> 0
-    var highBits = (bits - lowBits) / 0x100000000
-
-    this._block.writeUInt32BE(highBits, this._blockSize - 8)
-    this._block.writeUInt32BE(lowBits, this._blockSize - 4)
-  }
-
-  this._update(this._block)
-  var hash = this._hash()
-
-  return enc ? hash.toString(enc) : hash
-}
-
-Hash.prototype._update = function () {
-  throw new Error('_update must be implemented by subclass')
-}
-
-module.exports = Hash
-
-},{"safe-buffer":362}],365:[function(require,module,exports){
-var exports = module.exports = function SHA (algorithm) {
-  algorithm = algorithm.toLowerCase()
-
-  var Algorithm = exports[algorithm]
-  if (!Algorithm) throw new Error(algorithm + ' is not supported (we accept pull requests)')
-
-  return new Algorithm()
-}
-
-exports.sha = require('./sha')
-exports.sha1 = require('./sha1')
-exports.sha224 = require('./sha224')
-exports.sha256 = require('./sha256')
-exports.sha384 = require('./sha384')
-exports.sha512 = require('./sha512')
-
-},{"./sha":366,"./sha1":367,"./sha224":368,"./sha256":369,"./sha384":370,"./sha512":371}],366:[function(require,module,exports){
-/*
- * A JavaScript implementation of the Secure Hash Algorithm, SHA-0, as defined
- * in FIPS PUB 180-1
- * This source code is derived from sha1.js of the same repository.
- * The difference between SHA-0 and SHA-1 is just a bitwise rotate left
- * operation was added.
- */
-
-var inherits = require('inherits')
-var Hash = require('./hash')
-var Buffer = require('safe-buffer').Buffer
-
-var K = [
-  0x5a827999, 0x6ed9eba1, 0x8f1bbcdc | 0, 0xca62c1d6 | 0
-]
-
-var W = new Array(80)
-
-function Sha () {
-  this.init()
-  this._w = W
-
-  Hash.call(this, 64, 56)
-}
-
-inherits(Sha, Hash)
-
-Sha.prototype.init = function () {
-  this._a = 0x67452301
-  this._b = 0xefcdab89
-  this._c = 0x98badcfe
-  this._d = 0x10325476
-  this._e = 0xc3d2e1f0
-
-  return this
-}
-
-function rotl5 (num) {
-  return (num << 5) | (num >>> 27)
-}
-
-function rotl30 (num) {
-  return (num << 30) | (num >>> 2)
-}
-
-function ft (s, b, c, d) {
-  if (s === 0) return (b & c) | ((~b) & d)
-  if (s === 2) return (b & c) | (b & d) | (c & d)
-  return b ^ c ^ d
-}
-
-Sha.prototype._update = function (M) {
-  var W = this._w
-
-  var a = this._a | 0
-  var b = this._b | 0
-  var c = this._c | 0
-  var d = this._d | 0
-  var e = this._e | 0
-
-  for (var i = 0; i < 16; ++i) W[i] = M.readInt32BE(i * 4)
-  for (; i < 80; ++i) W[i] = W[i - 3] ^ W[i - 8] ^ W[i - 14] ^ W[i - 16]
-
-  for (var j = 0; j < 80; ++j) {
-    var s = ~~(j / 20)
-    var t = (rotl5(a) + ft(s, b, c, d) + e + W[j] + K[s]) | 0
-
-    e = d
-    d = c
-    c = rotl30(b)
-    b = a
-    a = t
-  }
-
-  this._a = (a + this._a) | 0
-  this._b = (b + this._b) | 0
-  this._c = (c + this._c) | 0
-  this._d = (d + this._d) | 0
-  this._e = (e + this._e) | 0
-}
-
-Sha.prototype._hash = function () {
-  var H = Buffer.allocUnsafe(20)
-
-  H.writeInt32BE(this._a | 0, 0)
-  H.writeInt32BE(this._b | 0, 4)
-  H.writeInt32BE(this._c | 0, 8)
-  H.writeInt32BE(this._d | 0, 12)
-  H.writeInt32BE(this._e | 0, 16)
-
-  return H
-}
-
-module.exports = Sha
-
-},{"./hash":364,"inherits":310,"safe-buffer":362}],367:[function(require,module,exports){
-/*
- * A JavaScript implementation of the Secure Hash Algorithm, SHA-1, as defined
- * in FIPS PUB 180-1
- * Version 2.1a Copyright Paul Johnston 2000 - 2002.
- * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
- * Distributed under the BSD License
- * See http://pajhome.org.uk/crypt/md5 for details.
- */
-
-var inherits = require('inherits')
-var Hash = require('./hash')
-var Buffer = require('safe-buffer').Buffer
-
-var K = [
-  0x5a827999, 0x6ed9eba1, 0x8f1bbcdc | 0, 0xca62c1d6 | 0
-]
-
-var W = new Array(80)
-
-function Sha1 () {
-  this.init()
-  this._w = W
-
-  Hash.call(this, 64, 56)
-}
-
-inherits(Sha1, Hash)
-
-Sha1.prototype.init = function () {
-  this._a = 0x67452301
-  this._b = 0xefcdab89
-  this._c = 0x98badcfe
-  this._d = 0x10325476
-  this._e = 0xc3d2e1f0
-
-  return this
-}
-
-function rotl1 (num) {
-  return (num << 1) | (num >>> 31)
-}
-
-function rotl5 (num) {
-  return (num << 5) | (num >>> 27)
-}
-
-function rotl30 (num) {
-  return (num << 30) | (num >>> 2)
-}
-
-function ft (s, b, c, d) {
-  if (s === 0) return (b & c) | ((~b) & d)
-  if (s === 2) return (b & c) | (b & d) | (c & d)
-  return b ^ c ^ d
-}
-
-Sha1.prototype._update = function (M) {
-  var W = this._w
-
-  var a = this._a | 0
-  var b = this._b | 0
-  var c = this._c | 0
-  var d = this._d | 0
-  var e = this._e | 0
-
-  for (var i = 0; i < 16; ++i) W[i] = M.readInt32BE(i * 4)
-  for (; i < 80; ++i) W[i] = rotl1(W[i - 3] ^ W[i - 8] ^ W[i - 14] ^ W[i - 16])
-
-  for (var j = 0; j < 80; ++j) {
-    var s = ~~(j / 20)
-    var t = (rotl5(a) + ft(s, b, c, d) + e + W[j] + K[s]) | 0
-
-    e = d
-    d = c
-    c = rotl30(b)
-    b = a
-    a = t
-  }
-
-  this._a = (a + this._a) | 0
-  this._b = (b + this._b) | 0
-  this._c = (c + this._c) | 0
-  this._d = (d + this._d) | 0
-  this._e = (e + this._e) | 0
-}
-
-Sha1.prototype._hash = function () {
-  var H = Buffer.allocUnsafe(20)
-
-  H.writeInt32BE(this._a | 0, 0)
-  H.writeInt32BE(this._b | 0, 4)
-  H.writeInt32BE(this._c | 0, 8)
-  H.writeInt32BE(this._d | 0, 12)
-  H.writeInt32BE(this._e | 0, 16)
-
-  return H
-}
-
-module.exports = Sha1
-
-},{"./hash":364,"inherits":310,"safe-buffer":362}],368:[function(require,module,exports){
-/**
- * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
- * in FIPS 180-2
- * Version 2.2-beta Copyright Angel Marin, Paul Johnston 2000 - 2009.
- * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
- *
- */
-
-var inherits = require('inherits')
-var Sha256 = require('./sha256')
-var Hash = require('./hash')
-var Buffer = require('safe-buffer').Buffer
-
-var W = new Array(64)
-
-function Sha224 () {
-  this.init()
-
-  this._w = W // new Array(64)
-
-  Hash.call(this, 64, 56)
-}
-
-inherits(Sha224, Sha256)
-
-Sha224.prototype.init = function () {
-  this._a = 0xc1059ed8
-  this._b = 0x367cd507
-  this._c = 0x3070dd17
-  this._d = 0xf70e5939
-  this._e = 0xffc00b31
-  this._f = 0x68581511
-  this._g = 0x64f98fa7
-  this._h = 0xbefa4fa4
-
-  return this
-}
-
-Sha224.prototype._hash = function () {
-  var H = Buffer.allocUnsafe(28)
-
-  H.writeInt32BE(this._a, 0)
-  H.writeInt32BE(this._b, 4)
-  H.writeInt32BE(this._c, 8)
-  H.writeInt32BE(this._d, 12)
-  H.writeInt32BE(this._e, 16)
-  H.writeInt32BE(this._f, 20)
-  H.writeInt32BE(this._g, 24)
-
-  return H
-}
-
-module.exports = Sha224
-
-},{"./hash":364,"./sha256":369,"inherits":310,"safe-buffer":362}],369:[function(require,module,exports){
-/**
- * A JavaScript implementation of the Secure Hash Algorithm, SHA-256, as defined
- * in FIPS 180-2
- * Version 2.2-beta Copyright Angel Marin, Paul Johnston 2000 - 2009.
- * Other contributors: Greg Holt, Andrew Kepert, Ydnar, Lostinet
- *
- */
-
-var inherits = require('inherits')
-var Hash = require('./hash')
-var Buffer = require('safe-buffer').Buffer
-
-var K = [
-  0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5,
-  0x3956C25B, 0x59F111F1, 0x923F82A4, 0xAB1C5ED5,
-  0xD807AA98, 0x12835B01, 0x243185BE, 0x550C7DC3,
-  0x72BE5D74, 0x80DEB1FE, 0x9BDC06A7, 0xC19BF174,
-  0xE49B69C1, 0xEFBE4786, 0x0FC19DC6, 0x240CA1CC,
-  0x2DE92C6F, 0x4A7484AA, 0x5CB0A9DC, 0x76F988DA,
-  0x983E5152, 0xA831C66D, 0xB00327C8, 0xBF597FC7,
-  0xC6E00BF3, 0xD5A79147, 0x06CA6351, 0x14292967,
-  0x27B70A85, 0x2E1B2138, 0x4D2C6DFC, 0x53380D13,
-  0x650A7354, 0x766A0ABB, 0x81C2C92E, 0x92722C85,
-  0xA2BFE8A1, 0xA81A664B, 0xC24B8B70, 0xC76C51A3,
-  0xD192E819, 0xD6990624, 0xF40E3585, 0x106AA070,
-  0x19A4C116, 0x1E376C08, 0x2748774C, 0x34B0BCB5,
-  0x391C0CB3, 0x4ED8AA4A, 0x5B9CCA4F, 0x682E6FF3,
-  0x748F82EE, 0x78A5636F, 0x84C87814, 0x8CC70208,
-  0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2
-]
-
-var W = new Array(64)
-
-function Sha256 () {
-  this.init()
-
-  this._w = W // new Array(64)
-
-  Hash.call(this, 64, 56)
-}
-
-inherits(Sha256, Hash)
-
-Sha256.prototype.init = function () {
-  this._a = 0x6a09e667
-  this._b = 0xbb67ae85
-  this._c = 0x3c6ef372
-  this._d = 0xa54ff53a
-  this._e = 0x510e527f
-  this._f = 0x9b05688c
-  this._g = 0x1f83d9ab
-  this._h = 0x5be0cd19
-
-  return this
-}
-
-function ch (x, y, z) {
-  return z ^ (x & (y ^ z))
-}
-
-function maj (x, y, z) {
-  return (x & y) | (z & (x | y))
-}
-
-function sigma0 (x) {
-  return (x >>> 2 | x << 30) ^ (x >>> 13 | x << 19) ^ (x >>> 22 | x << 10)
-}
-
-function sigma1 (x) {
-  return (x >>> 6 | x << 26) ^ (x >>> 11 | x << 21) ^ (x >>> 25 | x << 7)
-}
-
-function gamma0 (x) {
-  return (x >>> 7 | x << 25) ^ (x >>> 18 | x << 14) ^ (x >>> 3)
-}
-
-function gamma1 (x) {
-  return (x >>> 17 | x << 15) ^ (x >>> 19 | x << 13) ^ (x >>> 10)
-}
-
-Sha256.prototype._update = function (M) {
-  var W = this._w
-
-  var a = this._a | 0
-  var b = this._b | 0
-  var c = this._c | 0
-  var d = this._d | 0
-  var e = this._e | 0
-  var f = this._f | 0
-  var g = this._g | 0
-  var h = this._h | 0
-
-  for (var i = 0; i < 16; ++i) W[i] = M.readInt32BE(i * 4)
-  for (; i < 64; ++i) W[i] = (gamma1(W[i - 2]) + W[i - 7] + gamma0(W[i - 15]) + W[i - 16]) | 0
-
-  for (var j = 0; j < 64; ++j) {
-    var T1 = (h + sigma1(e) + ch(e, f, g) + K[j] + W[j]) | 0
-    var T2 = (sigma0(a) + maj(a, b, c)) | 0
-
-    h = g
-    g = f
-    f = e
-    e = (d + T1) | 0
-    d = c
-    c = b
-    b = a
-    a = (T1 + T2) | 0
-  }
-
-  this._a = (a + this._a) | 0
-  this._b = (b + this._b) | 0
-  this._c = (c + this._c) | 0
-  this._d = (d + this._d) | 0
-  this._e = (e + this._e) | 0
-  this._f = (f + this._f) | 0
-  this._g = (g + this._g) | 0
-  this._h = (h + this._h) | 0
-}
-
-Sha256.prototype._hash = function () {
-  var H = Buffer.allocUnsafe(32)
-
-  H.writeInt32BE(this._a, 0)
-  H.writeInt32BE(this._b, 4)
-  H.writeInt32BE(this._c, 8)
-  H.writeInt32BE(this._d, 12)
-  H.writeInt32BE(this._e, 16)
-  H.writeInt32BE(this._f, 20)
-  H.writeInt32BE(this._g, 24)
-  H.writeInt32BE(this._h, 28)
-
-  return H
-}
-
-module.exports = Sha256
-
-},{"./hash":364,"inherits":310,"safe-buffer":362}],370:[function(require,module,exports){
-var inherits = require('inherits')
-var SHA512 = require('./sha512')
-var Hash = require('./hash')
-var Buffer = require('safe-buffer').Buffer
-
-var W = new Array(160)
-
-function Sha384 () {
-  this.init()
-  this._w = W
-
-  Hash.call(this, 128, 112)
-}
-
-inherits(Sha384, SHA512)
-
-Sha384.prototype.init = function () {
-  this._ah = 0xcbbb9d5d
-  this._bh = 0x629a292a
-  this._ch = 0x9159015a
-  this._dh = 0x152fecd8
-  this._eh = 0x67332667
-  this._fh = 0x8eb44a87
-  this._gh = 0xdb0c2e0d
-  this._hh = 0x47b5481d
-
-  this._al = 0xc1059ed8
-  this._bl = 0x367cd507
-  this._cl = 0x3070dd17
-  this._dl = 0xf70e5939
-  this._el = 0xffc00b31
-  this._fl = 0x68581511
-  this._gl = 0x64f98fa7
-  this._hl = 0xbefa4fa4
-
-  return this
-}
-
-Sha384.prototype._hash = function () {
-  var H = Buffer.allocUnsafe(48)
-
-  function writeInt64BE (h, l, offset) {
-    H.writeInt32BE(h, offset)
-    H.writeInt32BE(l, offset + 4)
-  }
-
-  writeInt64BE(this._ah, this._al, 0)
-  writeInt64BE(this._bh, this._bl, 8)
-  writeInt64BE(this._ch, this._cl, 16)
-  writeInt64BE(this._dh, this._dl, 24)
-  writeInt64BE(this._eh, this._el, 32)
-  writeInt64BE(this._fh, this._fl, 40)
-
-  return H
-}
-
-module.exports = Sha384
-
-},{"./hash":364,"./sha512":371,"inherits":310,"safe-buffer":362}],371:[function(require,module,exports){
-var inherits = require('inherits')
-var Hash = require('./hash')
-var Buffer = require('safe-buffer').Buffer
-
-var K = [
-  0x428a2f98, 0xd728ae22, 0x71374491, 0x23ef65cd,
-  0xb5c0fbcf, 0xec4d3b2f, 0xe9b5dba5, 0x8189dbbc,
-  0x3956c25b, 0xf348b538, 0x59f111f1, 0xb605d019,
-  0x923f82a4, 0xaf194f9b, 0xab1c5ed5, 0xda6d8118,
-  0xd807aa98, 0xa3030242, 0x12835b01, 0x45706fbe,
-  0x243185be, 0x4ee4b28c, 0x550c7dc3, 0xd5ffb4e2,
-  0x72be5d74, 0xf27b896f, 0x80deb1fe, 0x3b1696b1,
-  0x9bdc06a7, 0x25c71235, 0xc19bf174, 0xcf692694,
-  0xe49b69c1, 0x9ef14ad2, 0xefbe4786, 0x384f25e3,
-  0x0fc19dc6, 0x8b8cd5b5, 0x240ca1cc, 0x77ac9c65,
-  0x2de92c6f, 0x592b0275, 0x4a7484aa, 0x6ea6e483,
-  0x5cb0a9dc, 0xbd41fbd4, 0x76f988da, 0x831153b5,
-  0x983e5152, 0xee66dfab, 0xa831c66d, 0x2db43210,
-  0xb00327c8, 0x98fb213f, 0xbf597fc7, 0xbeef0ee4,
-  0xc6e00bf3, 0x3da88fc2, 0xd5a79147, 0x930aa725,
-  0x06ca6351, 0xe003826f, 0x14292967, 0x0a0e6e70,
-  0x27b70a85, 0x46d22ffc, 0x2e1b2138, 0x5c26c926,
-  0x4d2c6dfc, 0x5ac42aed, 0x53380d13, 0x9d95b3df,
-  0x650a7354, 0x8baf63de, 0x766a0abb, 0x3c77b2a8,
-  0x81c2c92e, 0x47edaee6, 0x92722c85, 0x1482353b,
-  0xa2bfe8a1, 0x4cf10364, 0xa81a664b, 0xbc423001,
-  0xc24b8b70, 0xd0f89791, 0xc76c51a3, 0x0654be30,
-  0xd192e819, 0xd6ef5218, 0xd6990624, 0x5565a910,
-  0xf40e3585, 0x5771202a, 0x106aa070, 0x32bbd1b8,
-  0x19a4c116, 0xb8d2d0c8, 0x1e376c08, 0x5141ab53,
-  0x2748774c, 0xdf8eeb99, 0x34b0bcb5, 0xe19b48a8,
-  0x391c0cb3, 0xc5c95a63, 0x4ed8aa4a, 0xe3418acb,
-  0x5b9cca4f, 0x7763e373, 0x682e6ff3, 0xd6b2b8a3,
-  0x748f82ee, 0x5defb2fc, 0x78a5636f, 0x43172f60,
-  0x84c87814, 0xa1f0ab72, 0x8cc70208, 0x1a6439ec,
-  0x90befffa, 0x23631e28, 0xa4506ceb, 0xde82bde9,
-  0xbef9a3f7, 0xb2c67915, 0xc67178f2, 0xe372532b,
-  0xca273ece, 0xea26619c, 0xd186b8c7, 0x21c0c207,
-  0xeada7dd6, 0xcde0eb1e, 0xf57d4f7f, 0xee6ed178,
-  0x06f067aa, 0x72176fba, 0x0a637dc5, 0xa2c898a6,
-  0x113f9804, 0xbef90dae, 0x1b710b35, 0x131c471b,
-  0x28db77f5, 0x23047d84, 0x32caab7b, 0x40c72493,
-  0x3c9ebe0a, 0x15c9bebc, 0x431d67c4, 0x9c100d4c,
-  0x4cc5d4be, 0xcb3e42b6, 0x597f299c, 0xfc657e2a,
-  0x5fcb6fab, 0x3ad6faec, 0x6c44198c, 0x4a475817
-]
-
-var W = new Array(160)
-
-function Sha512 () {
-  this.init()
-  this._w = W
-
-  Hash.call(this, 128, 112)
-}
-
-inherits(Sha512, Hash)
-
-Sha512.prototype.init = function () {
-  this._ah = 0x6a09e667
-  this._bh = 0xbb67ae85
-  this._ch = 0x3c6ef372
-  this._dh = 0xa54ff53a
-  this._eh = 0x510e527f
-  this._fh = 0x9b05688c
-  this._gh = 0x1f83d9ab
-  this._hh = 0x5be0cd19
-
-  this._al = 0xf3bcc908
-  this._bl = 0x84caa73b
-  this._cl = 0xfe94f82b
-  this._dl = 0x5f1d36f1
-  this._el = 0xade682d1
-  this._fl = 0x2b3e6c1f
-  this._gl = 0xfb41bd6b
-  this._hl = 0x137e2179
-
-  return this
-}
-
-function Ch (x, y, z) {
-  return z ^ (x & (y ^ z))
-}
-
-function maj (x, y, z) {
-  return (x & y) | (z & (x | y))
-}
-
-function sigma0 (x, xl) {
-  return (x >>> 28 | xl << 4) ^ (xl >>> 2 | x << 30) ^ (xl >>> 7 | x << 25)
-}
-
-function sigma1 (x, xl) {
-  return (x >>> 14 | xl << 18) ^ (x >>> 18 | xl << 14) ^ (xl >>> 9 | x << 23)
-}
-
-function Gamma0 (x, xl) {
-  return (x >>> 1 | xl << 31) ^ (x >>> 8 | xl << 24) ^ (x >>> 7)
-}
-
-function Gamma0l (x, xl) {
-  return (x >>> 1 | xl << 31) ^ (x >>> 8 | xl << 24) ^ (x >>> 7 | xl << 25)
-}
-
-function Gamma1 (x, xl) {
-  return (x >>> 19 | xl << 13) ^ (xl >>> 29 | x << 3) ^ (x >>> 6)
-}
-
-function Gamma1l (x, xl) {
-  return (x >>> 19 | xl << 13) ^ (xl >>> 29 | x << 3) ^ (x >>> 6 | xl << 26)
-}
-
-function getCarry (a, b) {
-  return (a >>> 0) < (b >>> 0) ? 1 : 0
-}
-
-Sha512.prototype._update = function (M) {
-  var W = this._w
-
-  var ah = this._ah | 0
-  var bh = this._bh | 0
-  var ch = this._ch | 0
-  var dh = this._dh | 0
-  var eh = this._eh | 0
-  var fh = this._fh | 0
-  var gh = this._gh | 0
-  var hh = this._hh | 0
-
-  var al = this._al | 0
-  var bl = this._bl | 0
-  var cl = this._cl | 0
-  var dl = this._dl | 0
-  var el = this._el | 0
-  var fl = this._fl | 0
-  var gl = this._gl | 0
-  var hl = this._hl | 0
-
-  for (var i = 0; i < 32; i += 2) {
-    W[i] = M.readInt32BE(i * 4)
-    W[i + 1] = M.readInt32BE(i * 4 + 4)
-  }
-  for (; i < 160; i += 2) {
-    var xh = W[i - 15 * 2]
-    var xl = W[i - 15 * 2 + 1]
-    var gamma0 = Gamma0(xh, xl)
-    var gamma0l = Gamma0l(xl, xh)
-
-    xh = W[i - 2 * 2]
-    xl = W[i - 2 * 2 + 1]
-    var gamma1 = Gamma1(xh, xl)
-    var gamma1l = Gamma1l(xl, xh)
-
-    // W[i] = gamma0 + W[i - 7] + gamma1 + W[i - 16]
-    var Wi7h = W[i - 7 * 2]
-    var Wi7l = W[i - 7 * 2 + 1]
-
-    var Wi16h = W[i - 16 * 2]
-    var Wi16l = W[i - 16 * 2 + 1]
-
-    var Wil = (gamma0l + Wi7l) | 0
-    var Wih = (gamma0 + Wi7h + getCarry(Wil, gamma0l)) | 0
-    Wil = (Wil + gamma1l) | 0
-    Wih = (Wih + gamma1 + getCarry(Wil, gamma1l)) | 0
-    Wil = (Wil + Wi16l) | 0
-    Wih = (Wih + Wi16h + getCarry(Wil, Wi16l)) | 0
-
-    W[i] = Wih
-    W[i + 1] = Wil
-  }
-
-  for (var j = 0; j < 160; j += 2) {
-    Wih = W[j]
-    Wil = W[j + 1]
-
-    var majh = maj(ah, bh, ch)
-    var majl = maj(al, bl, cl)
-
-    var sigma0h = sigma0(ah, al)
-    var sigma0l = sigma0(al, ah)
-    var sigma1h = sigma1(eh, el)
-    var sigma1l = sigma1(el, eh)
-
-    // t1 = h + sigma1 + ch + K[j] + W[j]
-    var Kih = K[j]
-    var Kil = K[j + 1]
-
-    var chh = Ch(eh, fh, gh)
-    var chl = Ch(el, fl, gl)
-
-    var t1l = (hl + sigma1l) | 0
-    var t1h = (hh + sigma1h + getCarry(t1l, hl)) | 0
-    t1l = (t1l + chl) | 0
-    t1h = (t1h + chh + getCarry(t1l, chl)) | 0
-    t1l = (t1l + Kil) | 0
-    t1h = (t1h + Kih + getCarry(t1l, Kil)) | 0
-    t1l = (t1l + Wil) | 0
-    t1h = (t1h + Wih + getCarry(t1l, Wil)) | 0
-
-    // t2 = sigma0 + maj
-    var t2l = (sigma0l + majl) | 0
-    var t2h = (sigma0h + majh + getCarry(t2l, sigma0l)) | 0
-
-    hh = gh
-    hl = gl
-    gh = fh
-    gl = fl
-    fh = eh
-    fl = el
-    el = (dl + t1l) | 0
-    eh = (dh + t1h + getCarry(el, dl)) | 0
-    dh = ch
-    dl = cl
-    ch = bh
-    cl = bl
-    bh = ah
-    bl = al
-    al = (t1l + t2l) | 0
-    ah = (t1h + t2h + getCarry(al, t1l)) | 0
-  }
-
-  this._al = (this._al + al) | 0
-  this._bl = (this._bl + bl) | 0
-  this._cl = (this._cl + cl) | 0
-  this._dl = (this._dl + dl) | 0
-  this._el = (this._el + el) | 0
-  this._fl = (this._fl + fl) | 0
-  this._gl = (this._gl + gl) | 0
-  this._hl = (this._hl + hl) | 0
-
-  this._ah = (this._ah + ah + getCarry(this._al, al)) | 0
-  this._bh = (this._bh + bh + getCarry(this._bl, bl)) | 0
-  this._ch = (this._ch + ch + getCarry(this._cl, cl)) | 0
-  this._dh = (this._dh + dh + getCarry(this._dl, dl)) | 0
-  this._eh = (this._eh + eh + getCarry(this._el, el)) | 0
-  this._fh = (this._fh + fh + getCarry(this._fl, fl)) | 0
-  this._gh = (this._gh + gh + getCarry(this._gl, gl)) | 0
-  this._hh = (this._hh + hh + getCarry(this._hl, hl)) | 0
-}
-
-Sha512.prototype._hash = function () {
-  var H = Buffer.allocUnsafe(64)
-
-  function writeInt64BE (h, l, offset) {
-    H.writeInt32BE(h, offset)
-    H.writeInt32BE(l, offset + 4)
-  }
-
-  writeInt64BE(this._ah, this._al, 0)
-  writeInt64BE(this._bh, this._bl, 8)
-  writeInt64BE(this._ch, this._cl, 16)
-  writeInt64BE(this._dh, this._dl, 24)
-  writeInt64BE(this._eh, this._el, 32)
-  writeInt64BE(this._fh, this._fl, 40)
-  writeInt64BE(this._gh, this._gl, 48)
-  writeInt64BE(this._hh, this._hl, 56)
-
-  return H
-}
-
-module.exports = Sha512
-
-},{"./hash":364,"inherits":310,"safe-buffer":362}],372:[function(require,module,exports){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-module.exports = Stream;
-
-var EE = require('events').EventEmitter;
-var inherits = require('inherits');
-
-inherits(Stream, EE);
-Stream.Readable = require('readable-stream/readable.js');
-Stream.Writable = require('readable-stream/writable.js');
-Stream.Duplex = require('readable-stream/duplex.js');
-Stream.Transform = require('readable-stream/transform.js');
-Stream.PassThrough = require('readable-stream/passthrough.js');
-
-// Backwards-compat with node 0.4.x
-Stream.Stream = Stream;
-
-
-
-// old-style streams.  Note that the pipe method (the only relevant
-// part of this class) is overridden in the Readable class.
-
-function Stream() {
-  EE.call(this);
-}
-
-Stream.prototype.pipe = function(dest, options) {
-  var source = this;
-
-  function ondata(chunk) {
-    if (dest.writable) {
-      if (false === dest.write(chunk) && source.pause) {
-        source.pause();
-      }
-    }
-  }
-
-  source.on('data', ondata);
-
-  function ondrain() {
-    if (source.readable && source.resume) {
-      source.resume();
-    }
-  }
-
-  dest.on('drain', ondrain);
-
-  // If the 'end' option is not supplied, dest.end() will be called when
-  // source gets the 'end' or 'close' events.  Only dest.end() once.
-  if (!dest._isStdio && (!options || options.end !== false)) {
-    source.on('end', onend);
-    source.on('close', onclose);
-  }
-
-  var didOnEnd = false;
-  function onend() {
-    if (didOnEnd) return;
-    didOnEnd = true;
-
-    dest.end();
-  }
-
-
-  function onclose() {
-    if (didOnEnd) return;
-    didOnEnd = true;
-
-    if (typeof dest.destroy === 'function') dest.destroy();
-  }
-
-  // don't leave dangling pipes when there are errors.
-  function onerror(er) {
-    cleanup();
-    if (EE.listenerCount(this, 'error') === 0) {
-      throw er; // Unhandled stream error in pipe.
-    }
-  }
-
-  source.on('error', onerror);
-  dest.on('error', onerror);
-
-  // remove all the event listeners that were added.
-  function cleanup() {
-    source.removeListener('data', ondata);
-    dest.removeListener('drain', ondrain);
-
-    source.removeListener('end', onend);
-    source.removeListener('close', onclose);
-
-    source.removeListener('error', onerror);
-    dest.removeListener('error', onerror);
-
-    source.removeListener('end', cleanup);
-    source.removeListener('close', cleanup);
-
-    dest.removeListener('close', cleanup);
-  }
-
-  source.on('end', cleanup);
-  source.on('close', cleanup);
-
-  dest.on('close', cleanup);
-
-  dest.emit('pipe', source);
-
-  // Allow for unix-like usage: A.pipe(B).pipe(C)
-  return dest;
-};
-
-},{"events":278,"inherits":310,"readable-stream/duplex.js":346,"readable-stream/passthrough.js":357,"readable-stream/readable.js":358,"readable-stream/transform.js":359,"readable-stream/writable.js":360}],373:[function(require,module,exports){
-arguments[4][356][0].apply(exports,arguments)
-},{"dup":356,"safe-buffer":362}],374:[function(require,module,exports){
+},{"safe-buffer":370}],396:[function(require,module,exports){
 (function (setImmediate,clearImmediate){(function (){
 var nextTick = require('process/browser.js').nextTick;
 var apply = Function.prototype.apply;
@@ -45603,7 +45938,7 @@ exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate :
   delete immediateIds[id];
 };
 }).call(this)}).call(this,require("timers").setImmediate,require("timers").clearImmediate)
-},{"process/browser.js":332,"timers":374}],375:[function(require,module,exports){
+},{"process/browser.js":355,"timers":396}],397:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -46337,7 +46672,7 @@ Url.prototype.parseHost = function() {
   if (host) this.hostname = host;
 };
 
-},{"./util":376,"punycode":340,"querystring":343}],376:[function(require,module,exports){
+},{"./util":398,"punycode":363,"querystring":366}],398:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -46355,7 +46690,7 @@ module.exports = {
   }
 };
 
-},{}],377:[function(require,module,exports){
+},{}],399:[function(require,module,exports){
 (function (global){(function (){
 
 /**
@@ -46426,40 +46761,346 @@ function config (name) {
 }
 
 }).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],378:[function(require,module,exports){
-if (typeof Object.create === 'function') {
-  // implementation from standard node.js 'util' module
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    ctor.prototype = Object.create(superCtor.prototype, {
-      constructor: {
-        value: ctor,
-        enumerable: false,
-        writable: true,
-        configurable: true
-      }
-    });
-  };
-} else {
-  // old school shim for old browsers
-  module.exports = function inherits(ctor, superCtor) {
-    ctor.super_ = superCtor
-    var TempCtor = function () {}
-    TempCtor.prototype = superCtor.prototype
-    ctor.prototype = new TempCtor()
-    ctor.prototype.constructor = ctor
+},{}],400:[function(require,module,exports){
+arguments[4][200][0].apply(exports,arguments)
+},{"dup":200}],401:[function(require,module,exports){
+// Currently in sync with Node.js lib/internal/util/types.js
+// https://github.com/nodejs/node/commit/112cc7c27551254aa2b17098fb774867f05ed0d9
+
+'use strict';
+
+var isArgumentsObject = require('is-arguments');
+var isGeneratorFunction = require('is-generator-function');
+var whichTypedArray = require('which-typed-array');
+var isTypedArray = require('is-typed-array');
+
+function uncurryThis(f) {
+  return f.call.bind(f);
+}
+
+var BigIntSupported = typeof BigInt !== 'undefined';
+var SymbolSupported = typeof Symbol !== 'undefined';
+
+var ObjectToString = uncurryThis(Object.prototype.toString);
+
+var numberValue = uncurryThis(Number.prototype.valueOf);
+var stringValue = uncurryThis(String.prototype.valueOf);
+var booleanValue = uncurryThis(Boolean.prototype.valueOf);
+
+if (BigIntSupported) {
+  var bigIntValue = uncurryThis(BigInt.prototype.valueOf);
+}
+
+if (SymbolSupported) {
+  var symbolValue = uncurryThis(Symbol.prototype.valueOf);
+}
+
+function checkBoxedPrimitive(value, prototypeValueOf) {
+  if (typeof value !== 'object') {
+    return false;
+  }
+  try {
+    prototypeValueOf(value);
+    return true;
+  } catch(e) {
+    return false;
   }
 }
 
-},{}],379:[function(require,module,exports){
-module.exports = function isBuffer(arg) {
-  return arg && typeof arg === 'object'
-    && typeof arg.copy === 'function'
-    && typeof arg.fill === 'function'
-    && typeof arg.readUInt8 === 'function';
+exports.isArgumentsObject = isArgumentsObject;
+exports.isGeneratorFunction = isGeneratorFunction;
+exports.isTypedArray = isTypedArray;
+
+// Taken from here and modified for better browser support
+// https://github.com/sindresorhus/p-is-promise/blob/cda35a513bda03f977ad5cde3a079d237e82d7ef/index.js
+function isPromise(input) {
+	return (
+		(
+			typeof Promise !== 'undefined' &&
+			input instanceof Promise
+		) ||
+		(
+			input !== null &&
+			typeof input === 'object' &&
+			typeof input.then === 'function' &&
+			typeof input.catch === 'function'
+		)
+	);
 }
-},{}],380:[function(require,module,exports){
-(function (process,global){(function (){
+exports.isPromise = isPromise;
+
+function isArrayBufferView(value) {
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView) {
+    return ArrayBuffer.isView(value);
+  }
+
+  return (
+    isTypedArray(value) ||
+    isDataView(value)
+  );
+}
+exports.isArrayBufferView = isArrayBufferView;
+
+
+function isUint8Array(value) {
+  return whichTypedArray(value) === 'Uint8Array';
+}
+exports.isUint8Array = isUint8Array;
+
+function isUint8ClampedArray(value) {
+  return whichTypedArray(value) === 'Uint8ClampedArray';
+}
+exports.isUint8ClampedArray = isUint8ClampedArray;
+
+function isUint16Array(value) {
+  return whichTypedArray(value) === 'Uint16Array';
+}
+exports.isUint16Array = isUint16Array;
+
+function isUint32Array(value) {
+  return whichTypedArray(value) === 'Uint32Array';
+}
+exports.isUint32Array = isUint32Array;
+
+function isInt8Array(value) {
+  return whichTypedArray(value) === 'Int8Array';
+}
+exports.isInt8Array = isInt8Array;
+
+function isInt16Array(value) {
+  return whichTypedArray(value) === 'Int16Array';
+}
+exports.isInt16Array = isInt16Array;
+
+function isInt32Array(value) {
+  return whichTypedArray(value) === 'Int32Array';
+}
+exports.isInt32Array = isInt32Array;
+
+function isFloat32Array(value) {
+  return whichTypedArray(value) === 'Float32Array';
+}
+exports.isFloat32Array = isFloat32Array;
+
+function isFloat64Array(value) {
+  return whichTypedArray(value) === 'Float64Array';
+}
+exports.isFloat64Array = isFloat64Array;
+
+function isBigInt64Array(value) {
+  return whichTypedArray(value) === 'BigInt64Array';
+}
+exports.isBigInt64Array = isBigInt64Array;
+
+function isBigUint64Array(value) {
+  return whichTypedArray(value) === 'BigUint64Array';
+}
+exports.isBigUint64Array = isBigUint64Array;
+
+function isMapToString(value) {
+  return ObjectToString(value) === '[object Map]';
+}
+isMapToString.working = (
+  typeof Map !== 'undefined' &&
+  isMapToString(new Map())
+);
+
+function isMap(value) {
+  if (typeof Map === 'undefined') {
+    return false;
+  }
+
+  return isMapToString.working
+    ? isMapToString(value)
+    : value instanceof Map;
+}
+exports.isMap = isMap;
+
+function isSetToString(value) {
+  return ObjectToString(value) === '[object Set]';
+}
+isSetToString.working = (
+  typeof Set !== 'undefined' &&
+  isSetToString(new Set())
+);
+function isSet(value) {
+  if (typeof Set === 'undefined') {
+    return false;
+  }
+
+  return isSetToString.working
+    ? isSetToString(value)
+    : value instanceof Set;
+}
+exports.isSet = isSet;
+
+function isWeakMapToString(value) {
+  return ObjectToString(value) === '[object WeakMap]';
+}
+isWeakMapToString.working = (
+  typeof WeakMap !== 'undefined' &&
+  isWeakMapToString(new WeakMap())
+);
+function isWeakMap(value) {
+  if (typeof WeakMap === 'undefined') {
+    return false;
+  }
+
+  return isWeakMapToString.working
+    ? isWeakMapToString(value)
+    : value instanceof WeakMap;
+}
+exports.isWeakMap = isWeakMap;
+
+function isWeakSetToString(value) {
+  return ObjectToString(value) === '[object WeakSet]';
+}
+isWeakSetToString.working = (
+  typeof WeakSet !== 'undefined' &&
+  isWeakSetToString(new WeakSet())
+);
+function isWeakSet(value) {
+  return isWeakSetToString(value);
+}
+exports.isWeakSet = isWeakSet;
+
+function isArrayBufferToString(value) {
+  return ObjectToString(value) === '[object ArrayBuffer]';
+}
+isArrayBufferToString.working = (
+  typeof ArrayBuffer !== 'undefined' &&
+  isArrayBufferToString(new ArrayBuffer())
+);
+function isArrayBuffer(value) {
+  if (typeof ArrayBuffer === 'undefined') {
+    return false;
+  }
+
+  return isArrayBufferToString.working
+    ? isArrayBufferToString(value)
+    : value instanceof ArrayBuffer;
+}
+exports.isArrayBuffer = isArrayBuffer;
+
+function isDataViewToString(value) {
+  return ObjectToString(value) === '[object DataView]';
+}
+isDataViewToString.working = (
+  typeof ArrayBuffer !== 'undefined' &&
+  typeof DataView !== 'undefined' &&
+  isDataViewToString(new DataView(new ArrayBuffer(1), 0, 1))
+);
+function isDataView(value) {
+  if (typeof DataView === 'undefined') {
+    return false;
+  }
+
+  return isDataViewToString.working
+    ? isDataViewToString(value)
+    : value instanceof DataView;
+}
+exports.isDataView = isDataView;
+
+// Store a copy of SharedArrayBuffer in case it's deleted elsewhere
+var SharedArrayBufferCopy = typeof SharedArrayBuffer !== 'undefined' ? SharedArrayBuffer : undefined;
+function isSharedArrayBufferToString(value) {
+  return ObjectToString(value) === '[object SharedArrayBuffer]';
+}
+function isSharedArrayBuffer(value) {
+  if (typeof SharedArrayBufferCopy === 'undefined') {
+    return false;
+  }
+
+  if (typeof isSharedArrayBufferToString.working === 'undefined') {
+    isSharedArrayBufferToString.working = isSharedArrayBufferToString(new SharedArrayBufferCopy());
+  }
+
+  return isSharedArrayBufferToString.working
+    ? isSharedArrayBufferToString(value)
+    : value instanceof SharedArrayBufferCopy;
+}
+exports.isSharedArrayBuffer = isSharedArrayBuffer;
+
+function isAsyncFunction(value) {
+  return ObjectToString(value) === '[object AsyncFunction]';
+}
+exports.isAsyncFunction = isAsyncFunction;
+
+function isMapIterator(value) {
+  return ObjectToString(value) === '[object Map Iterator]';
+}
+exports.isMapIterator = isMapIterator;
+
+function isSetIterator(value) {
+  return ObjectToString(value) === '[object Set Iterator]';
+}
+exports.isSetIterator = isSetIterator;
+
+function isGeneratorObject(value) {
+  return ObjectToString(value) === '[object Generator]';
+}
+exports.isGeneratorObject = isGeneratorObject;
+
+function isWebAssemblyCompiledModule(value) {
+  return ObjectToString(value) === '[object WebAssembly.Module]';
+}
+exports.isWebAssemblyCompiledModule = isWebAssemblyCompiledModule;
+
+function isNumberObject(value) {
+  return checkBoxedPrimitive(value, numberValue);
+}
+exports.isNumberObject = isNumberObject;
+
+function isStringObject(value) {
+  return checkBoxedPrimitive(value, stringValue);
+}
+exports.isStringObject = isStringObject;
+
+function isBooleanObject(value) {
+  return checkBoxedPrimitive(value, booleanValue);
+}
+exports.isBooleanObject = isBooleanObject;
+
+function isBigIntObject(value) {
+  return BigIntSupported && checkBoxedPrimitive(value, bigIntValue);
+}
+exports.isBigIntObject = isBigIntObject;
+
+function isSymbolObject(value) {
+  return SymbolSupported && checkBoxedPrimitive(value, symbolValue);
+}
+exports.isSymbolObject = isSymbolObject;
+
+function isBoxedPrimitive(value) {
+  return (
+    isNumberObject(value) ||
+    isStringObject(value) ||
+    isBooleanObject(value) ||
+    isBigIntObject(value) ||
+    isSymbolObject(value)
+  );
+}
+exports.isBoxedPrimitive = isBoxedPrimitive;
+
+function isAnyArrayBuffer(value) {
+  return typeof Uint8Array !== 'undefined' && (
+    isArrayBuffer(value) ||
+    isSharedArrayBuffer(value)
+  );
+}
+exports.isAnyArrayBuffer = isAnyArrayBuffer;
+
+['isProxy', 'isExternal', 'isModuleNamespaceObject'].forEach(function(method) {
+  Object.defineProperty(exports, method, {
+    enumerable: false,
+    value: function() {
+      throw new Error(method + ' is not supported in userland');
+    }
+  });
+});
+
+},{"is-arguments":333,"is-generator-function":334,"is-typed-array":335,"which-typed-array":403}],402:[function(require,module,exports){
+(function (process){(function (){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -46480,6 +47121,16 @@ module.exports = function isBuffer(arg) {
 // DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+var getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors ||
+  function getOwnPropertyDescriptors(obj) {
+    var keys = Object.keys(obj);
+    var descriptors = {};
+    for (var i = 0; i < keys.length; i++) {
+      descriptors[keys[i]] = Object.getOwnPropertyDescriptor(obj, keys[i]);
+    }
+    return descriptors;
+  };
 
 var formatRegExp = /%[sdj%]/g;
 exports.format = function(f) {
@@ -46525,15 +47176,15 @@ exports.format = function(f) {
 // Returns a modified function which warns once by default.
 // If --no-deprecation is set, then it is a no-op.
 exports.deprecate = function(fn, msg) {
+  if (typeof process !== 'undefined' && process.noDeprecation === true) {
+    return fn;
+  }
+
   // Allow for deprecating things in the process of starting up.
-  if (isUndefined(global.process)) {
+  if (typeof process === 'undefined') {
     return function() {
       return exports.deprecate(fn, msg).apply(this, arguments);
     };
-  }
-
-  if (process.noDeprecation === true) {
-    return fn;
   }
 
   var warned = false;
@@ -46556,13 +47207,20 @@ exports.deprecate = function(fn, msg) {
 
 
 var debugs = {};
-var debugEnviron;
+var debugEnvRegex = /^$/;
+
+if (process.env.NODE_DEBUG) {
+  var debugEnv = process.env.NODE_DEBUG;
+  debugEnv = debugEnv.replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/,/g, '$|^')
+    .toUpperCase();
+  debugEnvRegex = new RegExp('^' + debugEnv + '$', 'i');
+}
 exports.debuglog = function(set) {
-  if (isUndefined(debugEnviron))
-    debugEnviron = process.env.NODE_DEBUG || '';
   set = set.toUpperCase();
   if (!debugs[set]) {
-    if (new RegExp('\\b' + set + '\\b', 'i').test(debugEnviron)) {
+    if (debugEnvRegex.test(set)) {
       var pid = process.pid;
       debugs[set] = function() {
         var msg = exports.format.apply(exports, arguments);
@@ -46909,6 +47567,8 @@ function reduceToSingleString(output, base, braces) {
 
 // NOTE: These type checking functions intentionally don't use `instanceof`
 // because it is fragile and can be easily faked with `Object.create()`.
+exports.types = require('./support/types');
+
 function isArray(ar) {
   return Array.isArray(ar);
 }
@@ -46953,6 +47613,7 @@ function isRegExp(re) {
   return isObject(re) && objectToString(re) === '[object RegExp]';
 }
 exports.isRegExp = isRegExp;
+exports.types.isRegExp = isRegExp;
 
 function isObject(arg) {
   return typeof arg === 'object' && arg !== null;
@@ -46963,12 +47624,14 @@ function isDate(d) {
   return isObject(d) && objectToString(d) === '[object Date]';
 }
 exports.isDate = isDate;
+exports.types.isDate = isDate;
 
 function isError(e) {
   return isObject(e) &&
       (objectToString(e) === '[object Error]' || e instanceof Error);
 }
 exports.isError = isError;
+exports.types.isNativeError = isError;
 
 function isFunction(arg) {
   return typeof arg === 'function';
@@ -47047,5 +47710,171 @@ function hasOwnProperty(obj, prop) {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-}).call(this)}).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./support/isBuffer":379,"_process":332,"inherits":378}]},{},[109]);
+var kCustomPromisifiedSymbol = typeof Symbol !== 'undefined' ? Symbol('util.promisify.custom') : undefined;
+
+exports.promisify = function promisify(original) {
+  if (typeof original !== 'function')
+    throw new TypeError('The "original" argument must be of type Function');
+
+  if (kCustomPromisifiedSymbol && original[kCustomPromisifiedSymbol]) {
+    var fn = original[kCustomPromisifiedSymbol];
+    if (typeof fn !== 'function') {
+      throw new TypeError('The "util.promisify.custom" argument must be of type Function');
+    }
+    Object.defineProperty(fn, kCustomPromisifiedSymbol, {
+      value: fn, enumerable: false, writable: false, configurable: true
+    });
+    return fn;
+  }
+
+  function fn() {
+    var promiseResolve, promiseReject;
+    var promise = new Promise(function (resolve, reject) {
+      promiseResolve = resolve;
+      promiseReject = reject;
+    });
+
+    var args = [];
+    for (var i = 0; i < arguments.length; i++) {
+      args.push(arguments[i]);
+    }
+    args.push(function (err, value) {
+      if (err) {
+        promiseReject(err);
+      } else {
+        promiseResolve(value);
+      }
+    });
+
+    try {
+      original.apply(this, args);
+    } catch (err) {
+      promiseReject(err);
+    }
+
+    return promise;
+  }
+
+  Object.setPrototypeOf(fn, Object.getPrototypeOf(original));
+
+  if (kCustomPromisifiedSymbol) Object.defineProperty(fn, kCustomPromisifiedSymbol, {
+    value: fn, enumerable: false, writable: false, configurable: true
+  });
+  return Object.defineProperties(
+    fn,
+    getOwnPropertyDescriptors(original)
+  );
+}
+
+exports.promisify.custom = kCustomPromisifiedSymbol
+
+function callbackifyOnRejected(reason, cb) {
+  // `!reason` guard inspired by bluebird (Ref: https://goo.gl/t5IS6M).
+  // Because `null` is a special error value in callbacks which means "no error
+  // occurred", we error-wrap so the callback consumer can distinguish between
+  // "the promise rejected with null" or "the promise fulfilled with undefined".
+  if (!reason) {
+    var newReason = new Error('Promise was rejected with a falsy value');
+    newReason.reason = reason;
+    reason = newReason;
+  }
+  return cb(reason);
+}
+
+function callbackify(original) {
+  if (typeof original !== 'function') {
+    throw new TypeError('The "original" argument must be of type Function');
+  }
+
+  // We DO NOT return the promise as it gives the user a false sense that
+  // the promise is actually somehow related to the callback's execution
+  // and that the callback throwing will reject the promise.
+  function callbackified() {
+    var args = [];
+    for (var i = 0; i < arguments.length; i++) {
+      args.push(arguments[i]);
+    }
+
+    var maybeCb = args.pop();
+    if (typeof maybeCb !== 'function') {
+      throw new TypeError('The last argument must be of type Function');
+    }
+    var self = this;
+    var cb = function() {
+      return maybeCb.apply(self, arguments);
+    };
+    // In true node style we process the callback on `nextTick` with all the
+    // implications (stack, `uncaughtException`, `async_hooks`)
+    original.apply(this, args)
+      .then(function(ret) { process.nextTick(cb.bind(null, null, ret)) },
+            function(rej) { process.nextTick(callbackifyOnRejected.bind(null, rej, cb)) });
+  }
+
+  Object.setPrototypeOf(callbackified, Object.getPrototypeOf(original));
+  Object.defineProperties(callbackified,
+                          getOwnPropertyDescriptors(original));
+  return callbackified;
+}
+exports.callbackify = callbackify;
+
+}).call(this)}).call(this,require('_process'))
+},{"./support/isBuffer":400,"./support/types":401,"_process":355,"inherits":332}],403:[function(require,module,exports){
+(function (global){(function (){
+'use strict';
+
+var forEach = require('foreach');
+var availableTypedArrays = require('available-typed-arrays');
+var callBound = require('call-bind/callBound');
+
+var $toString = callBound('Object.prototype.toString');
+var hasToStringTag = require('has-tostringtag/shams')();
+
+var g = typeof globalThis === 'undefined' ? global : globalThis;
+var typedArrays = availableTypedArrays();
+
+var $slice = callBound('String.prototype.slice');
+var toStrTags = {};
+var gOPD = require('es-abstract/helpers/getOwnPropertyDescriptor');
+var getPrototypeOf = Object.getPrototypeOf; // require('getprototypeof');
+if (hasToStringTag && gOPD && getPrototypeOf) {
+	forEach(typedArrays, function (typedArray) {
+		if (typeof g[typedArray] === 'function') {
+			var arr = new g[typedArray]();
+			if (Symbol.toStringTag in arr) {
+				var proto = getPrototypeOf(arr);
+				var descriptor = gOPD(proto, Symbol.toStringTag);
+				if (!descriptor) {
+					var superProto = getPrototypeOf(proto);
+					descriptor = gOPD(superProto, Symbol.toStringTag);
+				}
+				toStrTags[typedArray] = descriptor.get;
+			}
+		}
+	});
+}
+
+var tryTypedArrays = function tryAllTypedArrays(value) {
+	var foundName = false;
+	forEach(toStrTags, function (getter, typedArray) {
+		if (!foundName) {
+			try {
+				var name = getter.call(value);
+				if (name === typedArray) {
+					foundName = name;
+				}
+			} catch (e) {}
+		}
+	});
+	return foundName;
+};
+
+var isTypedArray = require('is-typed-array');
+
+module.exports = function whichTypedArray(value) {
+	if (!isTypedArray(value)) { return false; }
+	if (!hasToStringTag || !(Symbol.toStringTag in value)) { return $slice($toString(value), 8, -1); }
+	return tryTypedArrays(value);
+};
+
+}).call(this)}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{"available-typed-arrays":202,"call-bind/callBound":252,"es-abstract/helpers/getOwnPropertyDescriptor":291,"foreach":294,"has-tostringtag/shams":300,"is-typed-array":335}]},{},[181]);
