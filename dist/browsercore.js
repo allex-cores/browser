@@ -1887,7 +1887,7 @@ function createClient(lib){
     if(oob[1] === '-'){
       //console.log(process.pid,'OOBSource dying',this.identity ? this.identity.session : 'no session');
       this.setOOBSink(dummyOOBSink);
-      this.destroy();
+      this.destroy(new lib.Error('SERVER_SIDE_KILL'));
       return;
     }
     if(this.oobsink){
@@ -2195,10 +2195,12 @@ function createClient(lib){
     }
   };
   Client.prototype.removeChild = function(chld){
+    var session;
     if(!(this.children && chld && chld.identity && chld.identity.session)){
       return;
     }
-    var session = chld.identity.session;
+    this.__dyingException = this.__dyingException || chld.__dyingException;
+    session = chld.identity.session;
     this.children.remove(session);
     if(this.children.count<1) {
       this.maybeDie();
@@ -2809,6 +2811,7 @@ module.exports = function(inherit, Destroyable, _EventEmitter) {
       this.startTheDyingProcedure(exception);
     }
     if (this.shouldDie()) {
+      this.__dyingException = this.__dyingException || this.initialException;
       this.initialException = null;
       //console.log(process.pid, this.__id, 'ComplexDestroyable dying', this.destroyed);
       if (exception) {
@@ -2887,7 +2890,7 @@ module.exports = function (dummyFunc, _EventEmitter) {
     this.__dyingException = null;
   }
   Destroyable.prototype.destroy = function(exception){
-    var d = this.destroyed, e;
+    var d = this.destroyed;
     if(!d){return;}
     if (exception && !this.__dyingException) {
       this.__dyingException = exception;
@@ -2903,9 +2906,7 @@ module.exports = function (dummyFunc, _EventEmitter) {
       console.log('dafuq is', d, '?');
     }
     if (this.__dyingException) {
-      e = this.__dyingException;
-      this.__dyingException = null;
-      d.fire(e);
+      d.fire(this.__dyingException);
     } else {
       d.fire();
     }
@@ -3230,7 +3231,11 @@ function createlib (Map, DeferMap, ListenableMap, q, qext, containerDestroyAll) 
     check = this._instanceMap.get(modulename);
     if (typeof(check) == 'undefined') {
       ret = this.waitFor(modulename);
-      this._creationQ.run('.', new CreationJob(this, modulename, creationfunc));
+      //this._creationQ.run('.', new CreationJob(this, modulename, creationfunc));
+      this._creationQ.run(
+        '.', 
+        qext.newSteppedJobOnSteppedInstance(new CreationJobCore(this, modulename, creationfunc))
+      );
     }
     return ret || this.waitFor(modulename);
   };
@@ -3239,87 +3244,52 @@ function createlib (Map, DeferMap, ListenableMap, q, qext, containerDestroyAll) 
     return this._instanceMap.traverse(cb);
   };
 
-
-  // CreationJob
-  function CreationJob (dicont, depname, creationfunc) {
-    qext.JobOnDestroyableBase.call(this, dicont, creationfunc);
+  //CreationJobCore
+  function CreationJobCore (dicont, depname, creationfunc) {
     this.dicont = dicont;
     this.depname = depname;
     this.creationfunc = creationfunc;
   }
-  CreationJob.prototype = Object.create(qext.JobOnDestroyableBase.prototype,{constructor:{
-    value: CreationJob,
-    enumerable: false,
-    configurable: false,
-    writable: false
-  }});
-  CreationJob.prototype.destroy = function () {
+  CreationJobCore.prototype.destroy = function () {
     this.creationfunc = null;
     this.depname = null;
     this.dicont = null;
-    qext.JobOnDestroyableBase.prototype.destroy.call(this);
   };
-  CreationJob.prototype._destroyableOk = function () {
-    if (!this.destroyable) {
-      throw new Error('No DIContainer');
-    }
-    if (!this.destroyable._instanceMap) {
-      throw new Error('DIContainer destroyed');
-    }
-    return true;
-  };
-  CreationJob.prototype.go = function () {
-    var ok, check, ret;
-    ok = this.okToGo();
-    if (!ok.ok) {
-      return ok.val;
-    }
+  CreationJobCore.prototype.shouldContinue = function () {
     if (!this.dicont) {
-      this.reject(new Error('DIContainer is gone'));
-      return ok.val;
+      return new Error('No DIContainer');
+    }
+    if (!this.dicont._instanceMap) {
+      return new Error('DIContainer destroyed');
     }
     if (!(this.creationfunc && typeof(this.creationfunc)=='function')) {
-      this.reject(new Error('No creation function'));
-      return ok.val;
+      return new Error('No creation function');
     }
-    check = this.dicont.get(this.depname);
-    if (typeof(check) !== 'undefined') {
-      this.resolve(check);
-      return ok.val;
-    }
-    try {
-      check = this.creationfunc();
-    } catch (e) {
-      this.reject(e);
-      return ok.val;
-    }
-
-    if (!q.isThenable(check)) {
-      this.onCreationSuccess(check);
-      return ok.val;
-    }
-    check.then(
-      this.onCreationSuccess.bind(this),
-      this.onCreationSuccess.bind(this, null)
-    );
-    return ok.val;
   };
-  CreationJob.prototype.onCreationSuccess = function (instance, creationerror) {
-    if (creationerror) {
-      console.error('Creation Error', creationerror);
-      this.reject(creationerror);
-      return;
+  CreationJobCore.prototype.doTheFetch = function () {
+    return this.dicont.get(this.depname);
+  };
+  CreationJobCore.prototype.checkFetch = function (fetchedinstance) {
+    if (typeof(fetchedinstance) != 'undefined') {
+      return fetchedinstance;
     }
+    return this.creationfunc();
+  };
+  CreationJobCore.prototype.onFetch = function (instance) {
     if (instance && instance.destroyed && instance.destroyed.attach) {
       this.dicont.registerDestroyable(this.depname, instance);
     } else {
       this.dicont.register(this.depname, instance);
     }
-    this.resolve(true);
   };
 
-  
-  // CreationJob end
+  CreationJobCore.prototype.steps = [
+    'doTheFetch',
+    'checkFetch',
+    'onFetch'
+  ];
+
+  //CreationJobCore end
 
   return DIContainer;
 }
@@ -7079,8 +7049,12 @@ function createSteppedJob (q, inherit, mylib) {
   function SteppedJob (config, defer) {
     JobBase.call(this, defer);
     this.config = config;
+    this.resolveListener = null;
     this.notifyListener = null;
     this.step = -1; //will be bumped to zero in first runStep
+    if (config.resolve && isFunction(config.resolve.attach)){
+      this.resolveListener = config.resolve.attach(this.resolve.bind(this));
+    }
     if (config.notify && isFunction(config.notify.attach)){
       this.notifyListener = config.notify.attach(this.notify.bind(this));
     }
@@ -7095,6 +7069,10 @@ function createSteppedJob (q, inherit, mylib) {
       this.notifyListener.destroy();
     }
     this.notifyListener = null;
+    if (this.resolveListener) {
+      this.resolveListener.destroy();
+    }
+    this.resolveListener = null;
     this.config = null;    
     JobBase.prototype.destroy.call(this);
   };
@@ -7169,6 +7147,7 @@ function createSteppedJob (q, inherit, mylib) {
 
   function SteppedJobOnInstance (instance, methodnamesteps, defer) {
     SteppedJob.call(this, {
+      resolve: instance.resolve,
       notify: instance.notify,
       shouldContinue: isFunction(instance.shouldContinue) ? instance.shouldContinue.bind(instance) : null,
       onDesctruction: isFunction(instance.destroy) ? instance.destroy.bind(instance) : null,
@@ -12014,13 +11993,20 @@ function createTransportFactory(lib, TalkerFactory) {
     wsTalkers = new lib.Map(),
     socketTalkers = new lib.Map();
 
+  var _factoryOn = true;
+
   if ('undefined' === typeof window) {
+    process.on('SIGTERM', destroyAllTalkers);
+    process.on('SIGINT', destroyAllTalkers);
     process.on('exit', destroyAllTalkers);
   } else {
     window.onclose = destroyAllTalkers;
   }
 
   function destroyAllTalkers() {
+    _factoryOn = false;
+    lib.containerDestroyAll(httpTalkers);
+    httpTalkers.destroy();
     lib.containerDestroyAll(socketTalkers);
     socketTalkers.destroy();
     lib.containerDestroyAll(wsTalkers);
@@ -12048,6 +12034,9 @@ function createTransportFactory(lib, TalkerFactory) {
   }
   HttpTalkerSlot.prototype.destroy = function () {
     TalkerSlot.prototype.destroy.call(this);
+    if (this.talker) {
+      this.talker.destroy();
+    }
     this.talker = null;
     this.defer = null;
     this.connectionstring = null;
@@ -12200,6 +12189,9 @@ function createTransportFactory(lib, TalkerFactory) {
 
   function factory(type) {
     var slot, connectionstring, address, port, defer;
+    if (!_factoryOn) {
+      return q(null);
+    }
     switch(type) {
       case 'inproc':
         return talkerFactory.newInProcTalker(arguments[1]);
@@ -13424,7 +13416,7 @@ function createTalkerBase(lib) {
       return;
     }
     this.counter++;
-    if (this.counter>2) {
+    if (this.talker.lastClientError || this.counter>2) {
       //console.log('TalkerDestructor destroying', this.talker.id);
       this.talker.destroy();
       this.destroy();
@@ -13446,10 +13438,13 @@ function createTalkerBase(lib) {
     this.pendingDefers = new lib.DeferMap();
     this.futureOOBs = new lib.Map();
     this.destructor = null;
+    this.lastClientError = null;
   }
   lib.inherit(TalkerBase, lib.ComplexDestroyable);
   TalkerBase.prototype.__cleanUp = function () {
     var futures = this.futureOOBs, pendingDefers = this.pendingDefers, clients = this.clients; 
+    this.lastClientError = null;
+    this.destructor = null;    
     this.futureOOBs = null;
     this.pendingDefers = null;
     this.clients = null;
@@ -13542,6 +13537,7 @@ function createTalkerBase(lib) {
       console.error(this.clients.count, 'current clients');
       console.error(client);
     }
+    this.lastClientError = (client && this.clients.count==0 && client.__dyingException && client.__dyingException.code=='SERVER_SIDE_KILL') ? client.__dyingException : null;
     this.maybeDie();
     this.startNewSelfDestruction();
   };

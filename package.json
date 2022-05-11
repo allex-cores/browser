@@ -1,6 +1,6 @@
 {
   "name": "allex_browsercore",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "AllexJS Browser Core",
   "main": "src/index.js",
   "scripts": {
@@ -11,7 +11,7 @@
     "url": "git+https://github.com/allex-cores/browser.git"
   },
   "dependencies": {
-    "@microsoft/signalr": "5.x"
+    "@microsoft/signalr": "6.x"
   },
   "devDependencies": {
     "allexlib": "3.x",
