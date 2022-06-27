@@ -829,7 +829,7 @@ function createAvlTreeControllerFactory(Stack) {
         if (res===0){
           console.trace();
           prevStack.destroy();
-          console.error(content, 'is not unique');
+          console.error(leaf.content, 'is not unique');
           throw new Error('Items must have unique content');
         }
         if (res===-1){
@@ -1067,29 +1067,22 @@ function createAvlTreeControllerFactory(Stack) {
     }
 
     AvlTreeController.prototype.firstItemToSatisfyPreOrder = function(func, node, errorcaption){
-      var left, right, content;
       if (!node) return null;
-      left = node.left;
-      right = node.right;
-      content = node.content;
       var check = nodeApplier(node, func, errorcaption);
       if ('boolean' !== typeof check){
         throw Error('func needs to return a boolean value');
       }
       if (!!check){
-        return content;
+        return node.content;
       }
-      var ret = this.firstItemToSatisfyPreOrder(func,left, errorcaption);
+      var ret = this.firstItemToSatisfyPreOrder(func,node.left, errorcaption);
       if (!!ret) return ret;
-      ret = this.firstItemToSatisfyPreOrder(func,right, errorcaption);
+      ret = this.firstItemToSatisfyPreOrder(func,node.right, errorcaption);
       if (!!ret) return ret;
     };
 
     AvlTreeController.prototype.firstItemToSatisfyInOrder = function(func, node, errorcaption){
-      var right, content, ret;
       if (!node) return null;
-      content = node.content;
-      right = node.right;
       ret = this.firstItemToSatisfyInOrder(func,node.left, errorcaption);
       if (!!ret) return ret;
       var check = nodeApplier(node, func, errorcaption);
@@ -1097,34 +1090,29 @@ function createAvlTreeControllerFactory(Stack) {
         throw Error('func needs to return a boolean value');
       }
       if (!!check){
-        return content;
+        return node.content;
       }
-      ret = this.firstItemToSatisfyInOrder(func,right, errorcaption);
+      ret = this.firstItemToSatisfyInOrder(func,node.right, errorcaption);
       if (!!ret) return ret;
     };
 
     AvlTreeController.prototype.firstItemToSatisfyPostOrder = function(func, node, errorcaption){
-      var content;
       if (!node) return null;
       var ret = this.firstItemToSatisfyPostOrder(func,node.left, errorcaption);
       if (!!ret) return ret;
       ret = this.firstItemToSatisfyPostOrder(func,node.right, errorcaption);
       if (!!ret) return ret;
-      content = node.content;
       var check = nodeApplier(node, func, errorcaption);
       if ('boolean' !== typeof check){
         throw Error('func needs to return a boolean value');
       }
       if (!!check){
-        return content;
+        return node.content;
       }
     };
 
     AvlTreeController.prototype.lastItemToSatisfyPreOrder = function(func,node,prev, errorcaption){
-      var left, right;
       if (!node) return null;
-      left = node.left;
-      right = node.right;
       var check = nodeApplier(node, func, errorcaption);
       if ('boolean' !== typeof check){
         throw Error('func needs to return a boolean value');
@@ -1132,19 +1120,17 @@ function createAvlTreeControllerFactory(Stack) {
       if (!check){
         return !!prev ? prev.content : null;
       }
-      var ret = this.lastItemToSatisfyPreOrder(func,left,node, errorcaption);
+      var ret = this.lastItemToSatisfyPreOrder(func,node.left,node, errorcaption);
       if (!!ret) return ret;
-      ret = this.lastItemToSatisfyPreOrder(func,right,node, errorcaption);
+      ret = this.lastItemToSatisfyPreOrder(func,node.right,node, errorcaption);
       if (!!ret) return ret;
       return null;
     };
 
     AvlTreeController.prototype.lastItemToSatisfyInOrder = function(func,node,prev, errorcaption){
-      var right;
       if (!node) return null;
       var ret = this.lastItemToSatisfyInOrder(func,node.left,node, errorcaption);
       if (!!ret) return ret;
-      right = node.right;
       var check = nodeApplier(node, func, errorcaption);
       if ('boolean' !== typeof check){
         throw Error('func needs to return a boolean value');
@@ -1152,7 +1138,7 @@ function createAvlTreeControllerFactory(Stack) {
       if (!check){
         return !!prev ? prev.content : null;
       }
-      ret = this.lastItemToSatisfyInOrder(func,right,node, errorcaption);
+      ret = this.lastItemToSatisfyInOrder(func,node.right,node, errorcaption);
       if (!!ret) return ret;
       return null;
     };
@@ -1174,52 +1160,42 @@ function createAvlTreeControllerFactory(Stack) {
     };
 
     AvlTreeController.prototype.traversePreOrder = function(func, node, depth, errorcaption){
-      var left, right;
       if (!node) return;
-      left = node.left;
-      right = node.right;
       nodeApplier2(node,func,depth, errorcaption);
-      this.traversePreOrder(func,left,depth+1, errorcaption);
-      this.traversePreOrder(func,right,depth+1, errorcaption);
+      this.traversePreOrder(func,node.left,depth+1, errorcaption);
+      this.traversePreOrder(func,node.right,depth+1, errorcaption);
     };
     AvlTreeController.prototype.traversePreOrderConditionally = function(func, node, depth, errorcaption){
-      var left, right;
       if (!node) return;
-      left = node.left;
-      right = node.right;
       var ret = nodeApplier2(node,func,depth, errorcaption);
       if(typeof ret !== 'undefined'){
         return ret;
       }
-      ret = this.traversePreOrderConditionally(func,left,depth+1, errorcaption);
+      ret = this.traversePreOrderConditionally(func,node.left,depth+1, errorcaption);
       if(typeof ret !== 'undefined'){
         return ret;
       }
-      return this.traversePreOrderConditionally(func,right,depth+1, errorcaption);
+      return this.traversePreOrderConditionally(func,node.right,depth+1, errorcaption);
     };
 
     AvlTreeController.prototype.traverseInOrder = function(func, node, depth, errorcaption){
-      var right;
       if (!node) return;
-      right = node.right;
       this.traverseInOrder(func,node.left,depth+1, errorcaption);
       nodeApplier2(node,func,depth, errorcaption);
-      this.traverseInOrder(func,right,depth+1, errorcaption);
+      this.traverseInOrder(func,node.right,depth+1, errorcaption);
     };
 
     AvlTreeController.prototype.traverseInOrderConditionally = function(func, node, depth, errorcaption){
-      var right;
       if (!node) return;      
       var ret = this.traverseInOrderConditionally(func,node.left,depth+1, errorcaption);
       if(typeof ret !== 'undefined'){
         return ret;
       }
-      right = node.right;
       ret = nodeApplier2(node,func,depth, errorcaption);
       if(typeof ret !== 'undefined'){
         return ret;
       }
-      return this.traverseInOrderConditionally(func,right,depth+1, errorcaption);
+      return this.traverseInOrderConditionally(func,node.right,depth+1, errorcaption);
     };
 
     AvlTreeController.prototype.traversePostOrder = function(func, node, depth, errorcaption){
@@ -1283,10 +1259,12 @@ function createTreeFactory(dlistbase, inherit) {
       return content;
     }
     AvlTree.prototype.purge = function(){
-      var name;
-      while(name = this.traverseConditionally(contentGetter)){
-        this.remove(name);
-      }
+      var nodes = [], _ns = nodes;
+      this.controller.traverseInOrder(function (n) {_ns.push(n);});
+      _ns = null;
+      nodes.forEach(function (node) {node.destroy();});
+      nodes = null;
+      this.root = null;
     };
 
     AvlTree.prototype.count = function(){
@@ -1381,15 +1359,6 @@ function createTreeFactory(dlistbase, inherit) {
       }
       this.controller.traverseInOrder(func,this.root,0);
     };
-    AvlTree.prototype.traverseInOrderSafe = function(func, errorcaption){
-      if (!this.controller) {
-        return;
-      }
-      this.controller.traverseInOrder(func,this.root,0, errorcaption||'Error in AvlTree.traverseSafe');
-    };
-
-    AvlTree.prototype.traverse = AvlTree.prototype.traverseInOrder;
-    AvlTree.prototype.traverseSafe = AvlTree.prototype.traverseInOrderSafe;
 
     AvlTree.prototype.traversePreOrder= function(func){
       if (!this.controller) {
@@ -1411,8 +1380,6 @@ function createTreeFactory(dlistbase, inherit) {
       }
       return this.controller.traverseInOrderConditionally(func,this.root,0);
     }
-
-    AvlTree.prototype.traverseConditionally = AvlTree.prototype.traverseInOrderConditionally;
 
     AvlTree.prototype.traversePreOrderConditionally= function(func){
       if (!this.controller) {
@@ -1441,6 +1408,7 @@ function createTreeFactory(dlistbase, inherit) {
       console.log(s+item.contentToString()+' ('+level+')');
     }
 
+    /*
     function drainer(arry,countobj,content){
       arry[countobj.count] = content;
       countobj.count++;
@@ -1453,6 +1421,7 @@ function createTreeFactory(dlistbase, inherit) {
       this.purge();
       return ret;
     };
+    */
     return AvlTree;
   }
 }
@@ -5415,23 +5384,19 @@ function mapNodeCompare(a,b){
   return plainCompare(a.name,b.name);
 }
 
-function createMap (avltreelib, inherit) {
+function createMap (avltreelib, inherit, List) {
   'use strict';
   var Node = avltreelib.Node, Tree;
   function MapNode(name,content){
     Node.call(this,{name:name,content:content});
   }
   //TODO inherit?
-  MapNode.prototype = Object.create(Node.prototype,{constructor:{
-    value: MapNode,
-    enumerable: false,
-    configurable: false,
-    writable: false
-  }});
+  inherit(MapNode, Node);
   MapNode.prototype.destroy = function(){
-    if (!this.content) return;
-    this.content.name = null;
-    this.content.content = null;
+    if (this.content) {
+      this.content.name = null;
+      this.content.content = null;
+    }
     Node.prototype.destroy.call(this);
   };
   MapNode.prototype.returnOnRemove = function(){
@@ -5443,7 +5408,7 @@ function createMap (avltreelib, inherit) {
     if (!this.content) {
       return;
     }
-    return func(this.content.content,this.content.name,this,depth);
+    return func(this,depth);
   };
   MapNode.prototype.contentToString = function(){
     return this.content.name+' => '+'something';//require('util').inspect(this.content.content,{depth:null});
@@ -5454,22 +5419,28 @@ function createMap (avltreelib, inherit) {
   });
 
   function Map(){
-    Tree.call(this);
+    this.tree = new Tree();
+    this.count = 0;
     this.keyType = null;
   }
-  inherit(Map,Tree);
   Map.prototype.destroy = function () {
     this.keyType = null;
-    Tree.prototype.destroy.call(this);
+    this.count = null;
+    if (this.tree) {
+      this.tree.destroy();
+    }
+    this.tree = null;
   };
   function nameGetter(content,name){
     return name;
   }
   Map.prototype.purge = function () {
-    var name;
-    while(name = this.traverseConditionally(nameGetter)){
-      this.remove(name);
+    if (!this.tree) {
+      return;
     }
+    this.tree.purge();
+    this.keytype = null;
+    this.count = 0;
   };
   //static
   function checkType (name) {
@@ -5491,32 +5462,34 @@ function createMap (avltreelib, inherit) {
     }
   }
   Map.prototype.add = function (name, content) {
-    var keytype = typeof(name);
+    var keytype = typeof(name), ret;
     checkType.call(this, name);
-    return Tree.prototype.add.call(this, name, content);
-  }
+    ret = this.tree.add(name, content);
+    this.count = this.tree.count;
+    return ret;
+  };
   Map.prototype.reverseAdd = function(content,name){
     return this.add(name,content);
   };
   Map.prototype.replace = function(name,content){
-    var item = this.find({name:name}),ret;
+    var item = this.tree.find({name:name}),ret;
     if(item){
       ret = item.content.content;
       item.content.content = content;
-    }else{
-      this.add(name,content);
+      return ret;
     }
-    return ret;
+    this.add(name,content); //no return
   };
   Map.prototype.remove = function(name){
-    var ret = Tree.prototype.remove.call(this,{name:name});
+    var ret = this.tree.remove({name:name});
+    this.count = this.tree.count;
     if (this.count < 1) {
       this.keyType = null;
     }
     return ret;
   };
   Map.prototype.get = function(name){
-    var item = this.find({name:name});
+    var item = this.tree.find({name:name});
     if(item){
       return item.content.content;
     }
@@ -5545,30 +5518,86 @@ function createMap (avltreelib, inherit) {
     pageobj = null;
     cb = null;
   };
-  function keyPusher(arry,item,itemname){
-    arry.push(itemname);
+  function keyPusher(arry,node){
+    if (!(node && node.content)) {
+      return;
+    }
+    arry.push(node.content.name);
   }
   Map.prototype.keys = function(){
     var ret = [], _ret=ret;;
-    Tree.prototype.traverse.call(this, keyPusher.bind(null,_ret));
+    this.tree.traverseInOrder(keyPusher.bind(null,_ret));
     _ret = null;
     return ret;
   };
 
   //static
-  function applier (func, item, name) {
-    func(item, name, this);
+  function applier (func, errorcaption, node) {
+    if (!(node && node.content)) {
+      return;
+    }
+    if (!errorcaption) {
+      func(node.content.content, node.content.name, this);
+      return;
+    }
+    try {
+      func(node.content.content, node.content.name, this);
+    } catch (e) {
+      console.log(errorcaption+' :', e);
+    }
+  }
+
+  function listAppender (list, node) {
+    list.add(node);
+  }
+
+  //static
+  function toList () {
+    var list = new List(), _l = list;
+    this.tree.traverseInOrder(listAppender.bind(null, _l));
+    _l;
+    return list;
+  }
+  //static
+  function applyToCurrentNodes (func) {
+    var list = toList.call(this);
+    list.traverse(func);
+    list.destroy();
+  }
+
+  function applierForConditional (func, node) {
+    if (!(node && node.content)) {
+      return;
+    }
+    try {
+      return func(node.content.content, node.content.name, this);
+    } catch (e) {
+      console.error('Error in Map.traverseConditionally :', e);
+    }
+  }
+  //static
+  function conditionalApplyToCurrentNodes (func) {
+    var list = toList.call(this), ret;
+    ret = list.traverseConditionally(applierForConditional.bind(this, func));
+    func = null;
+    list.destroy();
+    return ret;
   }
 
   Map.prototype.traverse = function (func) {
-    var ret = Tree.prototype.traverse.call(this, applier.bind(this, func));
-    func = null;
-    return ret;
+    if (!this.tree) {
+      return;
+    }
+    return applyToCurrentNodes.call(this, applier.bind(this, func, null));
   };
   Map.prototype.traverseSafe = function (func, errorcaption) {
-    var ret = Tree.prototype.traverse.call(this, applier.bind(this, func), errorcaption||'Error in Map.traverseSafe');
-    func = null;
-    return ret;
+    if (!this.tree) {
+      return;
+    }
+    return applyToCurrentNodes.call(this, applier.bind(this, func, errorcaption || 'Error in Map.traverseSafe'));
+  };
+  Map.prototype.traverseConditionally = function (func) {
+    return conditionalApplyToCurrentNodes.call(this, func);
   };
 
   function arrayizer(array,keyname,valname,item,itemname){
@@ -10694,46 +10723,44 @@ function createStreamBufferCtor(lib,StreamSource,StreamDecoder,StreamDistributor
     return this.stream.attach(handler);
   };
   StreamBuffer.prototype.upsert = function(name,val,namearray,target){
+    var old, ret;
     if (!this.data) {
       return;
     }
-    var ditem = this.data.find({name:name}), ret;
-    if(ditem){
-      //update
-      //console.log('updating', name, ':', ret, 'with', val);
-      ret = ditem.content.content;
-      if(ret!==val){
-        ditem.content.content = val;
-        if (this.data.changed) {
-          this.data.changed.fire(name, val);
-        }
-        return target.updateScalar.bind(target,namearray,val,ret);
-      }
-    }else{
-      //insert
-      //console.log('inserting', val, 'at', name);
-      this.data.add(name,val);
-      return val instanceof this.nodeCtor() ? target.newCollection.bind(target,namearray) : target.newScalar.bind(target,namearray,val);
+    var old = this.data.replace(name, val);
+    if (old!==val) {
+      ret = target.updateScalar.bind(target,namearray,val,old);
+      target = null;
+      namearray = null;
+      val = null;
+      return ret;
     }
-    return lib.dummyFunc;
+    ret = val instanceof this.nodeCtor() ? target.newCollection.bind(target,namearray) : target.newScalar.bind(target,namearray,val);
+    target = null;
+    namearray = null;
+    val = null;
+    return ret;
   };
   StreamBuffer.prototype.createIfNotExists = function(createobj,name,nameindex,namearry){
+    var target, item, und, slc;
     if(nameindex>=namearry.length-1){
       createobj.events.push(createobj.target.upsert(name,createobj.val,namearry,this));
       return;
     }
-    var target=createobj.target;
+    target=createobj.target;
     if(!(target.data && 'function' === typeof target.data.get)){
       throw new lib.Error(namearry,nameindex);
     }
-    var item = target.data.get(name), und;
+    item = target.data.get(name);
     if(item===und){
       if('function' !== typeof target.data.add){
         throw new lib.Error(namearry,nameindex);
       }
       item = new (this.nodeCtor());
       target.data.add(name,item);
-      createobj.events.push(this.newCollection.bind(this,namearry.slice(0,nameindex+1)));
+      slc = namearry.slice(0,nameindex+1);
+      createobj.events.push(this.newCollection.bind(this,slc));
+      slc = null;
     }
     createobj.target = item;
   };
@@ -10741,7 +10768,7 @@ function createStreamBufferCtor(lib,StreamSource,StreamDecoder,StreamDistributor
     e();
   }
   StreamBuffer.prototype.set = function(name,val){ //throws
-    var ton = typeof name, ups;
+    var ton = typeof name, ups, createobj;
     if('string' === ton || name instanceof String){
       ups = this.upsert(name,val,[name],this);
       if (ups) {
@@ -10749,14 +10776,14 @@ function createStreamBufferCtor(lib,StreamSource,StreamDecoder,StreamDistributor
       }
     }else if('object' === ton && name instanceof Array){
       try{
-      var createobj = {target:this,events:[],val:val};
-      name.forEach(this.createIfNotExists.bind(this,createobj));
-      createobj.events.forEach(_executor);
-      createobj.target = null;
-      createobj.events = null;
+        createobj = {target:this,events:[],val:val};
+        name.forEach(this.createIfNotExists.bind(this,createobj));
+        createobj.events.forEach(_executor);
+        createobj.target = null;
+        createobj.events = null;
+        createobj = null;
       }
       catch(er){
-        console.error(er.stack);
         console.error(er);
       }
     }
@@ -10819,36 +10846,41 @@ function createStreamBufferCtor(lib,StreamSource,StreamDecoder,StreamDistributor
         }
         return ret;
       }else{
-        var di = collection.data.find({name:name[index]});
-        if(di){
-          return this.remove(name,index+1,di.content.content);
+        var di = collection.data.get(name[index]);
+        if('undefined' !== typeof di){
+          return this.remove(name,index+1,di);
         }else{
           return;
         }
       }
     }
   };
-  function doItem(sc,path,item,itemname){
+  //static
+  function doItem(path,item,itemname){
     if('object' === typeof item){
       path.push(itemname);
-      lib.traverse(item,doItem.bind(null,sc,path));
+      lib.traverse(item,doItem.bind(this,path));
       path.pop();
-    }else{
-      path.push(itemname);
-      sc.set(path,item);
-      path.pop();
+      path = null;
+      return;
     }
+    path.push(itemname);
+    this.set(path,item);
+    path.pop();
   }
   StreamBuffer.prototype.loadHash = function(hash){
-    lib.traverse(hash,doItem.bind(null,this,[]));
+    lib.traverse(hash,doItem.bind(this,[]));
   };
   function StreamBufferDumper(coll,sink,start,length){
+    var emptyarry = [];
     this.sink = sink;
     if('undefined' !== typeof start && 'undefined' !== typeof length){
-      coll.data.page(this.onItem.bind(this,[]),start,length);
-    }else{
-      coll.data.traverse(this.onItem.bind(this,[]));
+      coll.data.page(this.onItem.bind(this,emptyarry),start,length);
+      emptyarry = null;
+      return;
     }
+    coll.data.traverse(this.onItem.bind(this,emptyarry));
+    emptyarry = null;
   }
   lib.inherit(StreamBufferDumper,StreamCoder);
   StreamBufferDumper.prototype.destroy = function(){
@@ -10867,11 +10899,12 @@ function createStreamBufferCtor(lib,StreamSource,StreamDecoder,StreamDistributor
       this.newCollection(path);
       item.data.traverse(this.onItem.bind(this,path));
       path.pop(name);
-    }else{
-      path.push(name);
-      this.newScalar(path,item);
-      path.pop();
+      path = null;
+      return;
     }
+    path.push(name);
+    this.newScalar(path,item);
+    path.pop();
   };
   StreamBuffer.prototype.dump = function(func){
     var d = new StreamBufferDumper(this,func);
@@ -11034,9 +11067,10 @@ function createStreamPathListener(lib,StreamSource, Stream2Map){
     }
     if(this.pathmask.every(comparer.bind(null,path))){
       this.handleStreamItemSuper(item);
-    }else{
+    }/*else{
       //console.log(process.pid, 'nok', item.p, 'because', this.pathmask.map(function(item){return item.criterion();}));
-    }
+    }*/
+    path = null;
   };
   StreamPathListener.prototype.handleStreamItem = StreamPathListener.prototype.onStream;
   StreamPathListener.prototype.handleStreamItemSuper = function (item) {
@@ -11134,16 +11168,20 @@ function createSubServiceExtractor(lib,StreamSource){
   SubServiceExtractor.prototype.onStream = function(item){
     var p = item.p,
       subservicename,
-      initparams;
+      initparams,
+      cb;
     if(p && p.length===1 && p[0].indexOf('have')===0 && item.o==='s' && item.d===true) {
       subservicename = p[0].substring(4);
       initparams = this.initmap.get(subservicename);
       if(initparams){
+        cb = initparams.cb;
         //console.log('SubServiceExtractor trying to subConnect to', subservicename, 'as', initparams);
         this.supersink.subConnect(subservicename,initparams.identity,initparams.propertyhash).done(
-          this.onSubConnected.bind(this,initparams.cb,subservicename),
-          this.onSubConnectFailed.bind(this,initparams.cb,subservicename)
+          this.onSubConnected.bind(this,cb,subservicename),
+          this.onSubConnectFailed.bind(this,cb,subservicename)
         );
+        subservicename = null;
+        cb = null;
       }
     }
     this.handleStreamItem(item);
@@ -14344,6 +14382,7 @@ var
   AllexJSONizingError = require('allex_jsonizingerrorlowlevellib')(AllexError,inherit.inherit),
   NotAnAllexErrorError = require('allex_notanallexerrorerrorlowlevellib')(AllexError,inherit.inherit),
   dlinkedlistbase = require('allex_doublelinkedlistbaselowlevellib')(inherit.inherit),
+  DList = require('allex_doublelinkedlistlowlevellib')(dlinkedlistbase, inherit.inherit),
   fifo = require('allex_fifolowlevellib')(dlinkedlistbase, inherit.inherit),
   stringbuffer = require('allex_stringbufferlowlevellib')(fifo),
   timeout = require('allex_timeoutlowlevellib')(checkftions.isFunction, fifo),
@@ -14354,7 +14393,7 @@ var
   deferfifo = require('allex_deferfifolowlevellib')(dlinkedlistbase, inherit.inherit, q),
   uidlib = require('allex_uidlowlevellib')(q, maclib.getMac),
   avltreelib = require('allex_avltreelowlevellib')(dlinkedlistbase, inherit.inherit),
-  map = require('allex_maplowlevellib')(avltreelib, inherit.inherit),
+  map = require('allex_maplowlevellib')(avltreelib, inherit.inherit, slist),
   defermap = require('allex_defermaplowlevellib')(map, q),
   qlib = require('allex_qextlowlevellib')(q, inherit.inherit, timeout.runNext, fifo, map, cleanftions.containerDestroyAll),
   listenablemap = require('allex_listenablemaplowlevellib')(map, eventemitter, inherit.inherit, timeout.runNext, checkftions.isArray, checkftions.defined, checkftions.isDefinedAndNotNull, cleanftions.containerDestroyDeep, cleanftions.arryDestroyAll),
@@ -14439,7 +14478,7 @@ var toExport = {
   destroyASAP: timeout.destroyASAP,
   clearTimeout: timeout.clearTimeout,
   intervals: timeout.intervals,
-  DList: require('allex_doublelinkedlistlowlevellib')(dlinkedlistbase, inherit.inherit),
+  DList: DList,
   Fifo: fifo,
   StringBuffer: stringbuffer,
   DeferFifo: deferfifo,
