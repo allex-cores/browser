@@ -3263,7 +3263,7 @@ function createlib (Map, DeferMap, ListenableMap, q, qext, containerDestroyAll) 
     return !!this._instanceMap.get(modulename) || this._deferMap.exists(modulename);
   };
 
-  DIContainer.prototype.queueCreation = function (modulename, creationfunc) {
+  DIContainer.prototype.queueCreation = function (modulename, creationfunc, destructionhandlerfordestroyables) {
     var ret, check;
     check = this._instanceMap.get(modulename);
     if (typeof(check) == 'undefined') {
@@ -3271,7 +3271,7 @@ function createlib (Map, DeferMap, ListenableMap, q, qext, containerDestroyAll) 
       //this._creationQ.run('.', new CreationJob(this, modulename, creationfunc));
       this._creationQ.run(
         '.', 
-        qext.newSteppedJobOnSteppedInstance(new CreationJobCore(this, modulename, creationfunc))
+        qext.newSteppedJobOnSteppedInstance(new CreationJobCore(this, modulename, creationfunc, destructionhandlerfordestroyables))
       );
     }
     return ret || this.waitFor(modulename);
@@ -3280,14 +3280,19 @@ function createlib (Map, DeferMap, ListenableMap, q, qext, containerDestroyAll) 
   DIContainer.prototype.traverse = function (cb) {
     return this._instanceMap.traverse(cb);
   };
+  DIContainer.prototype.traverseSafe = function (cb, errorcaption) {
+    return this._instanceMap.traverseSafe(cb, errorcaption||'Error in DIContainer.traverseSafe');
+  };
 
   //CreationJobCore
-  function CreationJobCore (dicont, depname, creationfunc) {
+  function CreationJobCore (dicont, depname, creationfunc, destructionhandlerfordestroyables) {
     this.dicont = dicont;
     this.depname = depname;
     this.creationfunc = creationfunc;
+    this.destructionhandlerfordestroyables = destructionhandlerfordestroyables;
   }
   CreationJobCore.prototype.destroy = function () {
+    this.destructionhandlerfordestroyables = null;
     this.creationfunc = null;
     this.depname = null;
     this.dicont = null;
@@ -3317,7 +3322,15 @@ function createlib (Map, DeferMap, ListenableMap, q, qext, containerDestroyAll) 
       return;
     }
     if (instance && instance.destroyed && instance.destroyed.attach) {
-      this.dicont.registerDestroyable(this.depname, instance);
+      this.dicont.registerDestroyable(
+        this.depname,
+        instance,
+        typeof this.destructionhandlerfordestroyables == 'function'
+        ?
+        this.destructionhandlerfordestroyables
+        :
+        null
+        );
     } else {
       this.dicont.register(this.depname, instance);
     }
@@ -5657,16 +5670,16 @@ function createMap (avltreelib, inherit, List) {
     return ret;
   };
 
-  function consoleMap(name,content,item,level){
+  function consoleMap(node,level){
     var s = '';
     for(var i=0; i<level; i++){
       s += '\t';
     }
-    console.log(s+item.contentToString()+' ('+level+')');
+    console.log(s+node.contentToString()+' ('+level+')');
   }
 
   Map.prototype.dumpToConsole = function(){
-    Tree.prototype.dumpToConsole.call(this,consoleMap);
+    Tree.prototype.dumpToConsole.call(this.tree,consoleMap);
   };
 
   return Map;
@@ -6617,7 +6630,7 @@ function createlib (q, inherit, runNext, Fifo, Map, containerDestroyAll, dummyFu
       val = null;
       return ret;
     }
-  };
+  }
   function rejecter(val) {
     var _q = q;
     return function() {
@@ -6626,7 +6639,21 @@ function createlib (q, inherit, runNext, Fifo, Map, containerDestroyAll, dummyFu
       val = null;
       return ret;
     }
-  };
+  }
+  function logandthrower (caption) {
+    return function (reason) {
+      console.log(require('util').inspect(caption, {depth:null}), reason);
+      caption = null;
+      throw reason;
+    }
+  }
+  function errorandthrower (caption) {
+    return function (reason) {
+      console.error(require('util').inspect(caption, {depth:null}), reason);
+      caption = null;
+      throw reason;
+    }
+  }
   function propertyreturner(obj, propertyname) {
     var _q = q;
     return function () {
@@ -6821,9 +6848,11 @@ function createlib (q, inherit, runNext, Fifo, Map, containerDestroyAll, dummyFu
     PromiseHistoryChainerJob: PromiseHistoryChainerJob,
     PromiseMapperJob: PromiseMapperJob,
     PromiseExecutionMapperJob: PromiseExecutionMapperJob,
-    JobCollection: require('./jobcollectioncreator')(Fifo, Map, containerDestroyAll),
+    JobCollection: require('./jobcollectioncreator')(Fifo, Map, containerDestroyAll, q),
     returner: returner,
     rejecter: rejecter,
+    logandthrower: logandthrower,
+    errorandthrower: errorandthrower,
     propertyreturner: propertyreturner,
     resultpropertyreturner: resultpropertyreturner,
     executor: executor,
@@ -6841,14 +6870,14 @@ function createlib (q, inherit, runNext, Fifo, Map, containerDestroyAll, dummyFu
 
   ret.PromiseChainMapReducerJob = require('./promiseexecutionmapreducercreator')(inherit, applier, JobBase, PromiseMapperJob);
   ret.PromiseExecutionMapReducerJob = require('./promiseexecutionmapreducercreator')(inherit, applier, JobBase, PromiseExecutionMapperJob);
-  require('./steppedjobcreator')(q, inherit, ret);
+  require('./steppedjobcreator')(q, inherit, runNext, ret);
   
   return ret;
 }
 
 module.exports = createlib;
 
-},{"./chainpromises":72,"./jobbasecreator":74,"./jobcollectioncreator":75,"./joboncomplexdestroyablecreator":76,"./jobondestroyablebasecreator":77,"./jobondestroyablecreator":78,"./promisearrayfulfillerjob":79,"./promisechainerjobcreator":80,"./promiseexecutionmapreducercreator":81,"./promiseexecutorjobcreator":82,"./promisehistorychainerjobcreator":83,"./promisemapperjobcreator":84,"./steppedjobcreator":85}],74:[function(require,module,exports){
+},{"./chainpromises":72,"./jobbasecreator":74,"./jobcollectioncreator":75,"./joboncomplexdestroyablecreator":76,"./jobondestroyablebasecreator":77,"./jobondestroyablecreator":78,"./promisearrayfulfillerjob":79,"./promisechainerjobcreator":80,"./promiseexecutionmapreducercreator":81,"./promiseexecutorjobcreator":82,"./promisehistorychainerjobcreator":83,"./promisemapperjobcreator":84,"./steppedjobcreator":85,"util":405}],74:[function(require,module,exports){
 function createJobBase(q) {
   'use strict';
 
@@ -6927,7 +6956,7 @@ function createJobBase(q) {
 module.exports = createJobBase;
 
 },{}],75:[function(require,module,exports){
-function createJobCollection(Fifo, Map, containerDestroyAll) {
+function createJobCollection(Fifo, Map, containerDestroyAll, q) {
   'use strict';
 
   function destructionDrainer (j) {
@@ -7025,6 +7054,46 @@ function createJobCollection(Fifo, Map, containerDestroyAll) {
     }
     return lock.lastPendingJob();
   };
+  JobCollection.prototype.runMany = function (jobclassname, jobarry) {
+    var d, ret, i, _i, last, results;
+    results = [];
+    if (!(jobarry && jobarry.length>0)) {
+      return q(results);
+    }
+    d = q.defer();
+    ret = d.promise;
+    for (i=0; i<jobarry.length; i++) {
+      _i = i;
+      last = this.run(jobclassname, jobarry[i]).then(
+        resolve_arryer.bind(results),
+        reject_arryer.bind(results),
+        notify_arryer.bind(d, results, _i)        
+      );
+      _i = null;
+    }
+    results = null;
+    last.then(d.resolve.bind(d), d.reject.bind(d));
+    d = null;
+    return ret;
+  }
+  //static, this is array
+  function resolve_arryer (res) {
+    this.push({state: 'fulfilled', value: res});
+    return this;
+  }
+  //static, this is array
+  function reject_arryer (reason) {
+    this.push({state: 'rejected', value: reason});
+    return this;
+  }  
+  //static, this is defer
+  function notify_arryer (arry, index, progress) {
+    this.notify({
+      results: arry,
+      index: index,
+      progress: progress
+    });
+  }
   
   return JobCollection;
 }
@@ -7307,7 +7376,7 @@ function createPromiseMapper(q, inherit, JobBase, PromiseArrayFulfillerJob) {
 module.exports = createPromiseMapper;
 
 },{}],85:[function(require,module,exports){
-function createSteppedJob (q, inherit, mylib) {
+function createSteppedJob (q, inherit, runNext, mylib) {
   'use strict';
 
   var JobBase = mylib.JobBase;
@@ -7359,7 +7428,7 @@ function createSteppedJob (q, inherit, mylib) {
     if (!ok.ok) {
       return ok.val;
     }
-    this.runStep(null);
+    runNext(this.runStep.bind(this, null));
     return ok.val;
   };
   SteppedJob.prototype.peekToProceed = function () {
@@ -9069,6 +9138,10 @@ function createAcquireSinkTask(execlib){
       Task = execSuite.Task,
       ResolvableTaskError = execSuite.ResolvableTaskError;
 
+  var _itsallover = false;
+
+  lib.shouldClose.attachForSingleShot(function () {_itsallover = true;})
+
   function ResolvableBadAddressError(){
     var ret = ResolvableTaskError.call(this);
     return ret;
@@ -9171,6 +9244,9 @@ function createAcquireSinkTask(execlib){
         break;
     }
     */
+    if (_itsallover) {
+      return;
+    }
     lib.runNext(this.go.bind(this),1000);
   };
   AcquireSinkTask.prototype.onSinkDown = function(reason){
@@ -9873,16 +9949,20 @@ function createServiceSink(execlib){
     this.destroy(exception);
   };
   ServiceSink.prototype.subConnect = function(subservicename,identity,prophash){
-    var d = lib.q.defer();
+    var d = lib.q.defer(), ret = d.promise;
     if (!this.clientuser) {
       d.reject(new lib.Error('ALREADY_DEAD', 'No point in subConnect-ing to a dead Sink'));
-      return d.promise;
+      return ret;
     }
     this.clientuser.subConnect(subservicename,identity,this.ClientUser).done(
       this.onSubConnectDone.bind(this,d,prophash),
       d.reject.bind(d)
     );
-    return d.promise;
+    d = null;
+    subservicename = null;
+    identity = null;
+    prophash = null;
+    return ret;
   };
   ServiceSink.prototype.onSubConnectDone = function(d,prophash,clientpack){
     if(clientpack){
@@ -11635,6 +11715,19 @@ function createMisc(isString, isNull) {
     return or_text;
   }
 
+  function valof (obj, prop) {
+    if (obj == null || typeof obj == 'undefined') {
+      return obj;
+    }
+    if (prop in obj) {
+      return obj[prop];
+    }
+    if (typeof obj.get == 'function') {
+      return obj.get(prop);
+    }
+    return obj[prop];
+  }
+
   function dive (retobj, n, index, arr){
     var nisin;
     if (!retobj.ctx) return;
@@ -11649,7 +11742,7 @@ function createMisc(isString, isNull) {
       retobj.val = null;
       return;
     }
-    retobj.val = retobj.ctx[n];
+    retobj.val = valof(retobj.ctx, n);
     retobj.key = n;
    
     if (arr.length === 1) {
@@ -12191,7 +12284,7 @@ function augmentWithNext(isFunction, Fifo, outlib){
   function immediater(i){
     if(i===null){
       console.log('NO IMMEDIATE!');
-      throw 'No immediate';
+      throw new Error('No immediate');
       return;
     }
     var tdiff = i[1]-_eobj.now;
@@ -12238,7 +12331,7 @@ function augmentWithNext(isFunction, Fifo, outlib){
     var tod = typeof delay;
     if(tod !== 'number'){
       console.trace();
-      throw Error('delay not a number');
+      throw new Error('delay not a number');
     }
     var ret = _immediates.push([i_p,Date.now()+delay]);
     //console.log('+1', _immediates.length);
@@ -38886,49 +38979,36 @@ utils.intFromLE = intFromLE;
 arguments[4][200][0].apply(exports,arguments)
 },{"buffer":209,"dup":200}],293:[function(require,module,exports){
 module.exports={
-  "_from": "elliptic@^6.5.3",
-  "_id": "elliptic@6.5.4",
-  "_inBundle": false,
-  "_integrity": "sha512-iLhC6ULemrljPZb+QutR5TQGB+pdW6KGD5RSegS+8sorOZT+rdQFbsQFJgvN3eRqNALqJer4oQ16YvJHlU8hzQ==",
-  "_location": "/allexsdk/elliptic",
-  "_phantomChildren": {},
-  "_requested": {
-    "type": "range",
-    "registry": true,
-    "raw": "elliptic@^6.5.3",
-    "name": "elliptic",
-    "escapedName": "elliptic",
-    "rawSpec": "^6.5.3",
-    "saveSpec": null,
-    "fetchSpec": "^6.5.3"
-  },
-  "_requiredBy": [
-    "/allexsdk/browserify-sign",
-    "/allexsdk/create-ecdh"
+  "name": "elliptic",
+  "version": "6.5.4",
+  "description": "EC cryptography",
+  "main": "lib/elliptic.js",
+  "files": [
+    "lib"
   ],
-  "_resolved": "https://registry.npmjs.org/elliptic/-/elliptic-6.5.4.tgz",
-  "_shasum": "da37cebd31e79a1367e941b592ed1fbebd58abbb",
-  "_spec": "elliptic@^6.5.3",
-  "_where": "/home/andra/lib/node_modules/allexsdk/node_modules/browserify-sign",
-  "author": {
-    "name": "Fedor Indutny",
-    "email": "fedor@indutny.com"
+  "scripts": {
+    "lint": "eslint lib test",
+    "lint:fix": "npm run lint -- --fix",
+    "unit": "istanbul test _mocha --reporter=spec test/index.js",
+    "test": "npm run lint && npm run unit",
+    "version": "grunt dist && git add dist/"
   },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:indutny/elliptic"
+  },
+  "keywords": [
+    "EC",
+    "Elliptic",
+    "curve",
+    "Cryptography"
+  ],
+  "author": "Fedor Indutny <fedor@indutny.com>",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/indutny/elliptic/issues"
   },
-  "bundleDependencies": false,
-  "dependencies": {
-    "bn.js": "^4.11.9",
-    "brorand": "^1.1.0",
-    "hash.js": "^1.0.0",
-    "hmac-drbg": "^1.0.1",
-    "inherits": "^2.0.4",
-    "minimalistic-assert": "^1.0.1",
-    "minimalistic-crypto-utils": "^1.0.1"
-  },
-  "deprecated": false,
-  "description": "EC cryptography",
+  "homepage": "https://github.com/indutny/elliptic",
   "devDependencies": {
     "brfs": "^2.0.2",
     "coveralls": "^3.1.0",
@@ -38944,31 +39024,15 @@ module.exports={
     "istanbul": "^0.4.5",
     "mocha": "^8.0.1"
   },
-  "files": [
-    "lib"
-  ],
-  "homepage": "https://github.com/indutny/elliptic",
-  "keywords": [
-    "EC",
-    "Elliptic",
-    "curve",
-    "Cryptography"
-  ],
-  "license": "MIT",
-  "main": "lib/elliptic.js",
-  "name": "elliptic",
-  "repository": {
-    "type": "git",
-    "url": "git+ssh://git@github.com/indutny/elliptic.git"
-  },
-  "scripts": {
-    "lint": "eslint lib test",
-    "lint:fix": "npm run lint -- --fix",
-    "test": "npm run lint && npm run unit",
-    "unit": "istanbul test _mocha --reporter=spec test/index.js",
-    "version": "grunt dist && git add dist/"
-  },
-  "version": "6.5.4"
+  "dependencies": {
+    "bn.js": "^4.11.9",
+    "brorand": "^1.1.0",
+    "hash.js": "^1.0.0",
+    "hmac-drbg": "^1.0.1",
+    "inherits": "^2.0.4",
+    "minimalistic-assert": "^1.0.1",
+    "minimalistic-crypto-utils": "^1.0.1"
+  }
 }
 
 },{}],294:[function(require,module,exports){
