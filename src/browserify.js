@@ -1,5 +1,7 @@
+var lib = require('allexlib');
+require('./libshimmer')(lib);
 window.ALLEX = {
-  lib: require('allexlib'),
+  lib: lib,
   LOW_LEVEL_LIBS : {},
   WEB_COMPONENTS : {}
 };

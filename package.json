@@ -1,6 +1,6 @@
 {
   "name": "allex_browsercore",
-  "version": "1.2.7",
+  "version": "1.3.0",
   "description": "AllexJS Browser Core",
   "main": "src/index.js",
   "scripts": {
@@ -19,7 +19,8 @@
     "allex_arrayoperationslowlevellib": "1.x",
     "allex_callableservercorelib": "1.x",
     "allex_transportservercorelib": "2.x",
-    "allex_servicepackservercorelib": "3.x"
+    "allex_servicepackservercorelib": "3.x",
+    "biri": "0.x"
   },
   "keywords": [
     "ecosystem:AllexJS",
