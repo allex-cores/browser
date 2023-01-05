@@ -1624,7 +1624,17 @@ function isDefinedAndNotNull(val) {
   return val!==null;
 }
 function has (obj, key) {
-  return 'object' === typeof(obj) && obj != null && hasOwnProperty.call(obj, key);
+  var o, ret;
+  if (isArrayOfStrings(key)) {
+    o = obj;
+    ret = key.every(has.bind(null, o))
+    o = null;
+    return ret;
+  }
+  if (isString(key)) {
+    return 'object' === typeof(obj) && obj != null && hasOwnProperty.call(obj, key);
+  }
+  throw new Error('"has" needs a key that is either a String or Array[String]');
 }
 
 // equality handling ripped from lodash (https://github.com/lodash)
@@ -1735,17 +1745,42 @@ function isEqual (a,b) {
   return eq(a,b);
 }
 
-function isArrayOfFunctions (af) {
-  if (!isArray(af)) {
-    return false;
+function isArrayOfHaving (arry, fn) {
+  return isArray(arry) && arry.every(fn);
+}
+function isArrayOfStrings (arry) {
+  return isArrayOfHaving(arry, isString);
+}
+function isArrayOfNumbers (arry) {
+  return isArrayOfHaving(arry, isNumber);
+}
+function isArrayOfFunctions (arry) {
+  return isArrayOfHaving(arry, isFunction);
+}
+function hasreverse (key, obj) {
+  return has(obj, key);
+}
+function isArrayOfObjectsWithProperty (arry, propname) {
+  var ret = isArrayOfHaving(arry, hasreverse.bind(null, propname));
+  propname = null;
+  return ret;
+}
+function isArrayOfObjectsWithProperties (arry, propnames) {
+  var ret;
+  if (!isArrayOfStrings(propnames)) {
+    throw new Error('propnames provided has to be an Array[String]');
   }
-  return af.every(isFunction);
+  ret = isArrayOfHaving(arry, hasreverse.bind(null, propnames));
+  propnames = null;
+  return ret;
+}
+function isNonEmptyString (str) {
+  return isString(str) && str.length>0;
 }
 
 module.exports =  {
   isFunction : isFunction,
   isArray: isArray,
-  isArrayOfFunctions: isArrayOfFunctions,
   isUndef: isUndef,
   defined : defined,
   isDefinedAndNotNull : isDefinedAndNotNull,
@@ -1757,7 +1792,14 @@ module.exports =  {
   isVal:isVal,
   isEqual: isEqual,
   has : has,
-  isInteger : isInteger
+  isInteger : isInteger,
+  isArrayOfHaving: isArrayOfHaving,
+  isArrayOfStrings: isArrayOfStrings,
+  isArrayOfNumbers: isArrayOfNumbers,
+  isArrayOfFunctions: isArrayOfFunctions,
+  isArrayOfObjectsWithProperty: isArrayOfObjectsWithProperty,
+  isArrayOfObjectsWithProperties: isArrayOfObjectsWithProperties,
+  isNonEmptyString: isNonEmptyString
 };
 
 },{}],9:[function(require,module,exports){
@@ -6259,7 +6301,7 @@ module.exports = function (inheritMethods, extend, jsonschema, readPropertyFromD
       fs.forEach(check.bind(null, config));
       return;
     }
-    var validate = require('jsonschema').validate,
+    var validate = jsonschema.validate,
       result = validate(config, fs, {throwError: false});
 
     if (result.errors.length) throw new Error(result.errors.join('; '));
@@ -6311,7 +6353,7 @@ module.exports = function (inheritMethods, extend, jsonschema, readPropertyFromD
   return Configurable;
 };
 
-},{"jsonschema":181}],67:[function(require,module,exports){
+},{}],67:[function(require,module,exports){
 module.exports = function (inheritMethods, dummyFunc) {
   'use strict';
   function Gettable(){
@@ -6716,10 +6758,9 @@ function createlib (q, inherit, runNext, Fifo, Map, containerDestroyAll, dummyFu
 
   function thenAny (thingy, resolver, rejecter, notifier) {
     if (q.isThenable(thingy)) {
-      thingy.then(resolver, rejecter, notifier);
-      return;
+      return thingy.then(resolver, rejecter, notifier);
     }
-    resolver(thingy);
+    return resolver(thingy);
   }
 
   function waitForPromise (promise, timeout) {
@@ -11622,7 +11663,7 @@ module.exports = createStringBuffer;
 
 }).call(this)}).call(this,require('_process'))
 },{"_process":360}],141:[function(require,module,exports){
-function createMisc(isString, isNull) {
+function createStringManipulations(isString, isNull, AllexJSONizingError) {
   'use strict';
 
   function prependToString (prefix,min_len, or_text) {
@@ -11685,7 +11726,7 @@ function createMisc(isString, isNull) {
 
     if (isNull(old.ctx)){
       if (!create) {
-        throw new Error('No old data on key: '+path);
+        throw new AllexJSONizingError('NON_EXISTING_KEY', obj, 'Property "'+path+'" does not exist on');
       }
 
       var sk = path.split('.');
@@ -11726,39 +11767,46 @@ function createMisc(isString, isNull) {
     }
   }
 
-  function thousandSeparate(val, separator) {
+  function thousandSeparate(val, separator, options) {
+    var ret, intv, f, s, start, i;
+
     if (isNaN(val)) return val;
+    if (val == Infinity) return val;
+    if (val == -Infinity) return val;
 
-    ///just integers for now...
-    var ret = '',
-      intv = val > 0 ? Math.floor(val) : Math.ceil(val),
-      f = (val+'').replace(intv+'', ''),
-      rest = val - intv,
-      s = intv+'',
-      start = s.length - 3,
-      i;
+    options = options || {};
 
-    if (arguments.length === 1) {
-      separator = ' ';
-    }
+    ret = '';
+    intv = val > 0 ? Math.floor(val) : Math.ceil(val);
+    f = (val+'').replace(intv+'', '');
+    s = intv+'';
+    start = s.length - 3;
+
+    separator = separator||' ';
 
     while (start >= 0) {
       i = s.substr(start, 3);
       start -= 3;
-      if (ret.length) ret = ' '+ret;
-      ret = i+ret;
+      ret = join2StringsWith(i, ret, separator);
     }
 
-    if (start === -3)  {
-      return ret;
+    if (start != -3) {
+      if (ret.length && !(start==-2 && s[0]=='-')) {
+        ret = separator+ret;
+      }
+      ret = s.substr(0, 3+start) + ret;
     }
-
-    if (ret.length) ret = separator+ret;
-    ret = s.substr(0, 3+start) + ret;
     
-    if (f) {
-      ret += f;
-    }
+    if ('decimals' in options) {
+      f = Math[options.rounding||'round'](
+        Math.abs(parseFloat(f)||0)*(10**options.decimals)
+      )+''.replace(/\..*/,'');
+      while(f.length<options.decimals) {
+        f = '0'+f;
+      }
+      f = (options.decimalseparator||'.')+f;
+    }  
+    ret += f;
     return ret;
   }
 
@@ -11814,7 +11862,7 @@ function createMisc(isString, isNull) {
   };
 }
 
-module.exports = createMisc;
+module.exports = createStringManipulations;
 
 },{"querystring":371}],142:[function(require,module,exports){
 (function (process){(function (){
@@ -14418,13 +14466,13 @@ var theLib = {},
   checkftions = require('allex_checkslowlevellib'),
   cleanftions = require('allex_destructionlowlevellib')(checkftions.isFunction, checkftions.isArray, checkftions.isNumber, checkftions.isString),
   inherit = require('allex_inheritlowlevellib'),
-  slist = require('allex_singlelinkedlistlowlevellib')(inherit.inherit),
-  stringmanip = require('allex_stringmanipulationlowlevellib')(checkftions.isString, checkftions.isNull),
-  objmanip = require('allex_objectmanipulationlowlevellib')(checkftions),
-  functionmanip = require('allex_functionmanipulationlowlevellib')(inherit.inherit),
   AllexError = require('allex_errorlowlevellib')(inherit.inherit),
   AllexJSONizingError = require('allex_jsonizingerrorlowlevellib')(AllexError,inherit.inherit),
   NotAnAllexErrorError = require('allex_notanallexerrorerrorlowlevellib')(AllexError,inherit.inherit),
+  slist = require('allex_singlelinkedlistlowlevellib')(inherit.inherit),
+  stringmanip = require('allex_stringmanipulationlowlevellib')(checkftions.isString, checkftions.isNull, AllexJSONizingError),
+  objmanip = require('allex_objectmanipulationlowlevellib')(checkftions),
+  functionmanip = require('allex_functionmanipulationlowlevellib')(inherit.inherit),
   dlinkedlistbase = require('allex_doublelinkedlistbaselowlevellib')(inherit.inherit),
   DList = require('allex_doublelinkedlistlowlevellib')(dlinkedlistbase, inherit.inherit),
   fifo = require('allex_fifolowlevellib')(dlinkedlistbase, inherit.inherit),
@@ -14481,16 +14529,23 @@ theLib.isFunction=checkftions.isFunction;
 theLib.isArray=checkftions.isArray;
 theLib.isUndef=checkftions.isUndef;
 theLib.defined=checkftions.defined;
+theLib.isDefinedAndNotNull=checkftions.isDefinedAndNotNull;
 theLib.isString=checkftions.isString;
 theLib.isNumber=checkftions.isNumber;
 theLib.isNull= checkftions.isNull;
 theLib.isNotNull=checkftions.isNotNull;
-theLib.isDefinedAndNotNull=checkftions.isDefinedAndNotNull;
 theLib.isBoolean= checkftions.isBoolean;
 theLib.isVal=checkftions.isVal;
 theLib.isEqual= checkftions.isEqual;
 theLib.has= checkftions.has;
 theLib.isInteger = checkftions.isInteger;
+theLib.isArrayOfHaving = checkftions.isArrayOfHaving;
+theLib.isArrayOfStrings = checkftions.isArrayOfStrings;
+theLib.isArrayOfNumbers = checkftions.isArrayOfNumbers;
+theLib.isArrayOfFunctions = checkftions.isArrayOfFunctions;
+theLib.isArrayOfObjectsWithProperty = checkftions.isArrayOfObjectsWithProperty;
+theLib.isArrayOfObjectsWithProperties = checkftions.isArrayOfObjectsWithProperties;
+theLib.isNonEmptyString = checkftions.isNonEmptyString;
 theLib.Destroyable= destroyables.Destroyable;
 theLib.SimpleDestroyable= destroyables.SimpleDestroyable;
 theLib.ComplexDestroyable= destroyables.ComplexDestroyable;
