@@ -16,9 +16,16 @@ function shimLib (lib) {
     _pid = mac;
     cb(null, _pid);
   }
+  function onMacFailed (cb, err) {
+    console.warn('cannot obtain UID:', err);
+    cb(null, '0000');
+  }
 
   lib.getMac= function (cb) {
-    var ret = biri().then(onMac.bind(null, cb));
+    var ret = biri().then(
+      onMac.bind(null, cb),
+      onMacFailed.bind(null, cb)
+    );
     cb = null;
     return ret;
   };
