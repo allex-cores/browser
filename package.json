@@ -1,6 +1,6 @@
 {
   "name": "allex_browsercore",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "AllexJS Browser Core",
   "main": "src/index.js",
   "scripts": {
